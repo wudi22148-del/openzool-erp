@@ -23,13 +23,13 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # 1. Update system
-echo -e "${YELLOW}[1/8] Updating system...${NC}"
+echo -e "${YELLOW}[1/9] Updating system...${NC}"
 apt-get update -qq
 echo -e "${GREEN}OK${NC}"
 
 # 2. Install Node.js 20
 echo ""
-echo -e "${YELLOW}[2/8] Installing Node.js 20...${NC}"
+echo -e "${YELLOW}[2/9] Installing Node.js 20...${NC}"
 if ! command -v node &> /dev/null; then
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
     apt-get install -y nodejs
@@ -38,7 +38,7 @@ echo -e "${GREEN}OK - Node.js $(node --version)${NC}"
 
 # 3. Install Git
 echo ""
-echo -e "${YELLOW}[3/8] Installing Git...${NC}"
+echo -e "${YELLOW}[3/9] Installing Git...${NC}"
 if ! command -v git &> /dev/null; then
     apt-get install -y git
 fi
@@ -46,7 +46,7 @@ echo -e "${GREEN}OK - Git $(git --version)${NC}"
 
 # 4. Install pnpm
 echo ""
-echo -e "${YELLOW}[4/8] Installing pnpm...${NC}"
+echo -e "${YELLOW}[4/9] Installing pnpm...${NC}"
 if ! command -v pnpm &> /dev/null; then
     npm install -g pnpm
 fi
@@ -54,7 +54,7 @@ echo -e "${GREEN}OK - pnpm $(pnpm --version)${NC}"
 
 # 5. Clone project
 echo ""
-echo -e "${YELLOW}[5/8] Cloning project...${NC}"
+echo -e "${YELLOW}[5/9] Cloning project...${NC}"
 cd /root
 if [ -d "openzool-erp" ]; then
     echo "Project exists, updating..."
@@ -68,26 +68,38 @@ echo -e "${GREEN}OK${NC}"
 
 # 6. Install dependencies
 echo ""
-echo -e "${YELLOW}[6/8] Installing dependencies...${NC}"
+echo -e "${YELLOW}[6/9] Installing dependencies...${NC}"
 export NODE_OPTIONS="--max-old-space-size=8192"
 pnpm install
 echo -e "${GREEN}OK${NC}"
 
 # 7. Build frontend
 echo ""
-echo -e "${YELLOW}[7/8] Building frontend...${NC}"
+echo -e "${YELLOW}[7/9] Building frontend...${NC}"
 pnpm build
 echo -e "${GREEN}OK${NC}"
 
-# 8. Install and start PM2
+# 8. Clean up old services
 echo ""
-echo -e "${YELLOW}[8/8] Starting services...${NC}"
+echo -e "${YELLOW}[8/9] Cleaning up old services...${NC}"
 if ! command -v pm2 &> /dev/null; then
     npm install -g pm2
 fi
 
-# Stop old service
+# Stop and delete old zool-erp service
+pm2 stop zool-erp 2>/dev/null || true
+pm2 delete zool-erp 2>/dev/null || true
+
+# Stop and delete old openzool-erp-backend service
+pm2 stop openzool-erp-backend 2>/dev/null || true
 pm2 delete openzool-erp-backend 2>/dev/null || true
+
+pm2 save
+echo -e "${GREEN}OK${NC}"
+
+# 9. Start new service
+echo ""
+echo -e "${YELLOW}[9/9] Starting services...${NC}"
 
 # Start backend
 cd /root/openzool-erp/apps/backend-mock
