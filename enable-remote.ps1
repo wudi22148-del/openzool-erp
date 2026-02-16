@@ -1,4 +1,4 @@
-# Enable Remote Management on Server
+# Enable Remote Management on Server - Simple Version
 # Run this ONCE on the server to enable remote deployment
 
 Write-Host "========================================" -ForegroundColor Cyan
@@ -14,50 +14,52 @@ if (-not $isAdmin) {
     exit 1
 }
 
-# 1. Enable WinRM
-Write-Host "[1/4] Enabling WinRM..." -ForegroundColor Yellow
+# 1. Start WinRM Service
+Write-Host "[1/5] Starting WinRM Service..." -ForegroundColor Yellow
 try {
-    Enable-PSRemoting -Force -SkipNetworkProfileCheck
+    Set-Service -Name WinRM -StartupType Automatic -ErrorAction Stop
+    Start-Service -Name WinRM -ErrorAction Stop
     Write-Host "OK" -ForegroundColor Green
 }
 catch {
-    Write-Host "WARNING: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host "ERROR: $_" -ForegroundColor Red
+    pause
+    exit 1
 }
 
-# 2. Start WinRM Service
+# 2. Configure WinRM Listener
 Write-Host ""
-Write-Host "[2/4] Starting WinRM Service..." -ForegroundColor Yellow
-Set-Service -Name WinRM -StartupType Automatic
-Start-Service -Name WinRM
+Write-Host "[2/5] Configuring WinRM Listener..." -ForegroundColor Yellow
+winrm quickconfig -quiet -force
 Write-Host "OK" -ForegroundColor Green
 
-# 3. Configure WinRM
+# 3. Configure Authentication
 Write-Host ""
-Write-Host "[3/4] Configuring WinRM..." -ForegroundColor Yellow
-Set-Item WSMan:\localhost\Client\TrustedHosts -Value "*" -Force
+Write-Host "[3/5] Configuring Authentication..." -ForegroundColor Yellow
 winrm set winrm/config/service/auth '@{Basic="true"}'
 winrm set winrm/config/service '@{AllowUnencrypted="true"}'
 winrm set winrm/config/client '@{TrustedHosts="*"}'
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value "*" -Force
 Write-Host "OK" -ForegroundColor Green
 
 # 4. Configure Firewall
 Write-Host ""
-Write-Host "[4/4] Configuring Firewall..." -ForegroundColor Yellow
+Write-Host "[4/5] Configuring Firewall..." -ForegroundColor Yellow
 netsh advfirewall firewall delete rule name="WinRM HTTP" 2>$null
 netsh advfirewall firewall delete rule name="WinRM HTTPS" 2>$null
-netsh advfirewall firewall add rule name="WinRM HTTP" dir=in action=allow protocol=TCP localport=5985
-netsh advfirewall firewall add rule name="WinRM HTTPS" dir=in action=allow protocol=TCP localport=5986
+netsh advfirewall firewall add rule name="WinRM HTTP" dir=in action=allow protocol=TCP localport=5985 | Out-Null
+netsh advfirewall firewall add rule name="WinRM HTTPS" dir=in action=allow protocol=TCP localport=5986 | Out-Null
 Write-Host "OK" -ForegroundColor Green
 
-# Test WinRM
+# 5. Test WinRM
 Write-Host ""
-Write-Host "Testing WinRM..." -ForegroundColor Yellow
-$testResult = Test-WSMan -ComputerName localhost -ErrorAction SilentlyContinue
-if ($testResult) {
+Write-Host "[5/5] Testing WinRM..." -ForegroundColor Yellow
+try {
+    $testResult = Test-WSMan -ComputerName localhost -ErrorAction Stop
     Write-Host "OK - WinRM is working!" -ForegroundColor Green
 }
-else {
-    Write-Host "WARNING - WinRM test failed, but configuration is complete" -ForegroundColor Yellow
+catch {
+    Write-Host "WARNING - Test failed but configuration is complete" -ForegroundColor Yellow
 }
 
 Write-Host ""
@@ -65,7 +67,7 @@ Write-Host "========================================" -ForegroundColor Green
 Write-Host "  Remote Management Enabled!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "Now you can deploy remotely from your local machine!" -ForegroundColor Yellow
+Write-Host "Server is ready for remote deployment!" -ForegroundColor Yellow
 Write-Host "Run auto-deploy.ps1 on your local computer." -ForegroundColor Yellow
 Write-Host ""
 pause
