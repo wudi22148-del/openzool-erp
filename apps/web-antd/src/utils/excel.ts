@@ -87,24 +87,46 @@ export function parseExcel(file: File): Promise<any[]> {
 
 /**
  * 映射 Excel 数据到产品对象
+ * 返回格式：{ validProducts: 成功的产品数组, errors: 错误信息数组 }
  */
-export function mapExcelToProduct(excelData: any[]): any[] {
+export function mapExcelToProduct(excelData: any[]): { validProducts: any[], errors: string[] } {
   const validProducts: any[] = [];
   const errors: string[] = [];
 
   excelData.forEach((row, index) => {
-    const productName = row['产品名*'] || row['产品名'];
-    const skuName = row['SKU名*'] || row['SKU名'];
-    const warehouseSku = row['仓库SKU*'] || row['仓库SKU'];
-    const productCost = row['产品成本*'] || row['产品成本'];
-    const tax = row['税金*'] || row['税金'];
-    const domesticShipping = row['国内运费*'] || row['国内运费'];
-    const overseasShipping = row['海外运费*'] || row['海外运费'];
-    const manager = row['管理人*'] || row['管理人'];
+    // 更宽容的字段匹配，去除空格和星号
+    const getField = (fieldNames: string[]) => {
+      for (const name of fieldNames) {
+        if (row[name] !== undefined && row[name] !== null && row[name] !== '') {
+          return row[name];
+        }
+      }
+      return null;
+    };
 
-    // 校验必填字段
-    if (!productName || !skuName || !warehouseSku || !productCost || !tax ||
-        !domesticShipping || !overseasShipping || !manager) {
+    const productName = getField(['产品名*', '产品名', '产品名称*', '产品名称']);
+    const skuName = getField(['SKU名*', 'SKU名', 'SKU名称*', 'SKU名称']);
+    const warehouseSku = getField(['仓库SKU*', '仓库SKU', '仓库sku*', '仓库sku']);
+    const temuSku = getField(['TEMU SKU', 'TEMU_SKU', 'temuSku', 'temu sku']);
+    const sheinSku = getField(['SHEIN SKU', 'SHEIN_SKU', 'sheinSku', 'shein sku']);
+    const length = getField(['长(cm)', '长', 'length', 'L(cm)']);
+    const width = getField(['宽(cm)', '宽', 'width', 'W(cm)']);
+    const height = getField(['高(cm)', '高', 'height', 'H(cm)']);
+    const weight = getField(['重量(kg)', '重量', 'weight', 'Weight(kg)']);
+    const productCost = getField(['产品成本*', '产品成本', '成本*', '成本']);
+    const tax = getField(['税金*', '税金', '税*', '税']);
+    const domesticShipping = getField(['国内运费*', '国内运费', '国内物流*', '国内物流']);
+    const overseasShipping = getField(['海外运费*', '海外运费', '海外物流*', '海外物流']);
+    const manager = getField(['管理人*', '管理人', '负责人*', '负责人']);
+    const stock = getField(['库存量', '库存', 'stock', 'Stock']);
+
+    // 校验必填字段（注意：0 会被判断为 false，所以需要特殊处理数字字段）
+    if (!productName || !skuName || !warehouseSku ||
+        productCost === null || productCost === undefined || productCost === '' ||
+        tax === null || tax === undefined || tax === '' ||
+        domesticShipping === null || domesticShipping === undefined || domesticShipping === '' ||
+        overseasShipping === null || overseasShipping === undefined || overseasShipping === '' ||
+        !manager) {
       errors.push(`第 ${index + 2} 行：产品名、SKU名、仓库SKU、产品成本、税金、国内运费、海外运费、管理人为必填项`);
       return;
     }
@@ -114,32 +136,32 @@ export function mapExcelToProduct(excelData: any[]): any[] {
       productName: productName,
       skuName: skuName,
       warehouseSku: warehouseSku,
-      temuSku: row['TEMU SKU'] || '',
-      sheinSku: row['SHEIN SKU'] || '',
+      temuSku: temuSku || '',
+      sheinSku: sheinSku || '',
       specs: {
-        length: row['长(cm)'] || '',
-        width: row['宽(cm)'] || '',
-        height: row['高(cm)'] || '',
-        weight: row['重量(kg)'] || '',
+        length: length || '',
+        width: width || '',
+        height: height || '',
+        weight: weight || '',
       },
       productCost: Number(productCost) || 0,
       tax: Number(tax) || 0,
       domesticShipping: Number(domesticShipping) || 0,
       overseasShipping: Number(overseasShipping) || 0,
       manager: manager,
-      stock: Number(row['库存量']) || 0,
+      stock: Number(stock) || 0,
       imageUrl: '',
     };
 
     validProducts.push(product);
   });
 
+  // 返回成功和失败的结果，不再抛出异常
   if (errors.length > 0) {
     console.warn('导入数据校验警告：', errors);
-    throw new Error(errors.join('\n'));
   }
 
-  return validProducts;
+  return { validProducts, errors };
 }
 
 /**
@@ -221,8 +243,23 @@ export function parseDailySalesExcel(file: File): Promise<any[]> {
             return;
           }
 
+          // 转换日期格式
+          let formattedDate: string;
+          if (typeof date === 'number') {
+            // Excel日期序列号转换为标准日期格式
+            // 使用 1900-01-00 (即 1899-12-31) 作为起点，因为Excel将1900-01-01视为第1天
+            const excelEpoch = new Date(1900, 0, 0);
+            const dateObj = new Date(excelEpoch.getTime() + date * 86400000);
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            formattedDate = `${year}-${month}-${day}`;
+          } else {
+            formattedDate = String(date).trim();
+          }
+
           validData.push({
-            date: String(date).trim(),
+            date: formattedDate,
             warehouseSku: String(warehouseSku).trim(),
             salesQuantity: Number(salesQuantity) || 0,
             orderNumber: orderNumber ? String(orderNumber).trim() : undefined,

@@ -37,6 +37,8 @@
           v-model:value="searchForm.manager"
           placeholder="筛选管理人"
           allow-clear
+          show-search
+          :filter-option="filterManagerOption"
           style="width: 160px"
           @change="handleSearch"
         >
@@ -162,7 +164,7 @@ const searchForm = reactive({
 });
 
 // 时间范围
-const quickDateRange = ref('7');
+const quickDateRange = ref('30');
 const dateRange = ref<[Dayjs, Dayjs]>();
 
 // 管理人列表
@@ -193,25 +195,30 @@ async function loadManagers() {
 
 loadManagers();
 
-// 计算日期范围
+// 管理人筛选函数
+function filterManagerOption(input: string, option: any) {
+  return option.label.toLowerCase().includes(input.toLowerCase());
+}
+
+// 计算日期范围（从昨天开始往前推，不包含今天）
 function calculateDateRange(type: string): [Dayjs, Dayjs] {
-  const today = dayjs();
+  const yesterday = dayjs().subtract(1, 'day');
   switch (type) {
     case '7':
-      return [today.subtract(6, 'day'), today];
+      return [yesterday.subtract(6, 'day'), yesterday];
     case '15':
-      return [today.subtract(14, 'day'), today];
+      return [yesterday.subtract(14, 'day'), yesterday];
     case '30':
-      return [today.subtract(29, 'day'), today];
+      return [yesterday.subtract(29, 'day'), yesterday];
     case 'month':
-      return [today.startOf('month'), today];
+      return [yesterday.startOf('month'), yesterday];
     default:
-      return [today.subtract(6, 'day'), today];
+      return [yesterday.subtract(6, 'day'), yesterday];
   }
 }
 
 // 初始化日期范围
-dateRange.value = calculateDateRange('7');
+dateRange.value = calculateDateRange('30');
 
 // 统计模式切换
 function handleStatisticsModeChange(mode: 'quantity' | 'orders') {
@@ -266,14 +273,25 @@ async function handleBeforeUpload(file: File) {
       return false;
     }
 
-    await uploadDailySales(salesData);
+    const result = await uploadDailySales(salesData);
 
     loading();
-    notification.success({
-      message: '导入成功',
-      description: `成功导入 ${salesData.length} 条日销数据`,
-      duration: 3,
-    });
+
+    // 检查是否有缺失的SKU警告
+    // 注意：由于 responseReturn: 'data'，result 就是后端返回的 data 字段
+    if (result?.missingSkus && result.missingSkus.length > 0) {
+      notification.warning({
+        message: '部分数据导入成功',
+        description: `成功导入 ${result.uploadedCount} 条数据（${result.uploadedQuantity} 件销量），跳过 ${result.skippedCount} 条数据（${result.skippedQuantity} 件销量）。\n以下 ${result.missingCount} 个SKU不在产品库中：\n${result.missingSkus.slice(0, 10).join(', ')}${result.missingCount > 10 ? '...' : ''}`,
+        duration: 10,
+      });
+    } else {
+      notification.success({
+        message: '导入成功',
+        description: `成功导入 ${salesData.length} 条日销数据`,
+        duration: 3,
+      });
+    }
 
     // 触发表格重新加载（通过改变 dateRange 来触发）
     const currentRange = dateRange.value;

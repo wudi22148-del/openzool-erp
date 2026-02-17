@@ -8,7 +8,7 @@ export default defineEventHandler(async (event) => {
   console.log('更新产品specs:', body.specs);
 
   // 更新产品
-  const updatedProduct = updateProduct(id!, body);
+  const updatedProduct = await updateProduct(id!, body);
 
   if (!updatedProduct) {
     return {
@@ -19,9 +19,6 @@ export default defineEventHandler(async (event) => {
 
   console.log('更新后的产品:', updatedProduct);
   console.log('更新后的产品specs:', updatedProduct.specs);
-
-  // 模拟延迟
-  await new Promise((resolve) => setTimeout(resolve, 500));
 
   return {
     code: 0,

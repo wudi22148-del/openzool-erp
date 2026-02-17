@@ -3,13 +3,10 @@ import { deleteProduct } from './_storage';
 export default defineEventHandler(async (event) => {
   const id = event.context.params?.id;
 
-  // 从共享存储中删除产品
+  // 从数据库中删除产品
   if (id) {
-    deleteProduct(id);
+    await deleteProduct(id);
   }
-
-  // 模拟延迟
-  await new Promise((resolve) => setTimeout(resolve, 500));
 
   return {
     code: 0,

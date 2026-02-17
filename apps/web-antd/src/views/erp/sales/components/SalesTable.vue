@@ -34,7 +34,7 @@
 
     <!-- 动态日期列 -->
     <template v-for="date in dateColumns" :key="date.field" #[date.field]="{ row }">
-      <span class="text-[13px]">{{ row[date.field] || 0 }}</span>
+      <span class="text-[13px]">{{ formatCellValue(row[date.field]) }}</span>
     </template>
   </Grid>
 
@@ -71,10 +71,55 @@ const props = defineProps<{
   statisticsMode: 'quantity' | 'orders';
 }>();
 
+// 格式化单元格数值
+function formatCellValue(value: number | undefined | null): string {
+  if (!value || value === 0) return '';
+
+  // 订单数量模式：如果是整数就不显示小数点，否则保留一位小数
+  if (props.statisticsMode === 'orders') {
+    return Number.isInteger(value) ? value.toString() : value.toFixed(1);
+  }
+
+  // 销售数量模式：四舍五入到整数
+  return Math.round(value).toString();
+}
+
 // 备注相关状态
 const remarkModalVisible = ref(false);
 const currentRemark = ref('');
 const currentRow = ref<any>(null);
+
+// 数据缓存 - 分别缓存销售数量和订单数量的完整数据
+const cachedQuantityFullData = ref<any[]>([]);
+const cachedOrdersFullData = ref<any[]>([]);
+const cacheKey = ref('');
+
+// 生成缓存键（不包含搜索条件）
+function getCacheKey() {
+  return `${props.dateRange[0].format('YYYY-MM-DD')}_${props.dateRange[1].format('YYYY-MM-DD')}`;
+}
+
+// 前端筛选数据
+function getFilteredData(fullData: any[]) {
+  let filtered = [...fullData];
+
+  // 关键词筛选
+  if (props.searchForm.keyword) {
+    const keyword = props.searchForm.keyword.toLowerCase();
+    filtered = filtered.filter(item =>
+      item.productName?.toLowerCase().includes(keyword) ||
+      item.skuName?.toLowerCase().includes(keyword) ||
+      item.warehouseSku?.toLowerCase().includes(keyword)
+    );
+  }
+
+  // 管理人筛选
+  if (props.searchForm.manager) {
+    filtered = filtered.filter(item => item.manager === props.searchForm.manager);
+  }
+
+  return filtered;
+}
 
 // 查看/编辑备注
 function handleViewRemark(row: any) {
@@ -126,7 +171,7 @@ const dateColumns = computed(() => {
 });
 
 // 固定列配置
-const fixedColumns = [
+const fixedColumns = computed(() => [
   {
     title: '负责人',
     field: 'manager',
@@ -147,7 +192,7 @@ const fixedColumns = [
     width: 100,
     align: 'center',
     fixed: 'left',
-    formatter: ({ cellValue }: any) => cellValue ? Math.round(cellValue) : '0',
+    formatter: ({ cellValue }: any) => formatCellValue(cellValue),
   },
   {
     title: '平均日销',
@@ -173,7 +218,7 @@ const fixedColumns = [
     fixed: 'left',
     slots: { default: 'trend' },
   },
-];
+]);
 
 // 生成所有列
 const allColumns = computed(() => {
@@ -182,8 +227,9 @@ const allColumns = computed(() => {
     field: col.field,
     width: 80,
     align: 'center' as const,
+    formatter: ({ cellValue }: any) => formatCellValue(cellValue),
   }));
-  return [...fixedColumns, ...dynamicCols];
+  return [...fixedColumns.value, ...dynamicCols];
 });
 
 // 表格配置
@@ -212,15 +258,27 @@ const [Grid, gridApi] = useVbenVxeGrid({
             return '合计';
           }
           if (column.field === 'totalSales') {
-            return Math.round(data.reduce((sum: number, row: any) => sum + (row.totalSales || 0), 0));
+            const total = data.reduce((sum: number, row: any) => sum + (row.totalSales || 0), 0);
+            if (total === 0) return '';
+            if (props.statisticsMode === 'orders') {
+              return Number.isInteger(total) ? total.toString() : total.toFixed(1);
+            }
+            return Math.round(total);
           }
           if (column.field === 'avgDailySales') {
             const total = data.reduce((sum: number, row: any) => sum + (row.totalSales || 0), 0);
             const days = dateColumns.value.length;
-            return days > 0 ? (total / days).toFixed(1) : '0';
+            if (days === 0 || total === 0) return '';
+            const avg = total / days;
+            return Number.isInteger(avg) ? avg.toString() : avg.toFixed(1);
           }
           if (column.field && column.field.startsWith('date_')) {
-            return Math.round(data.reduce((sum: number, row: any) => sum + (row[column.field] || 0), 0));
+            const total = data.reduce((sum: number, row: any) => sum + (row[column.field] || 0), 0);
+            if (total === 0) return '';
+            if (props.statisticsMode === 'orders') {
+              return Number.isInteger(total) ? total.toString() : total.toFixed(1);
+            }
+            return Math.round(total);
           }
           return '';
         }),
@@ -230,24 +288,54 @@ const [Grid, gridApi] = useVbenVxeGrid({
     columns: allColumns.value,
     pagerConfig: {
       enabled: true,
-      pageSize: 30,
-      pageSizes: [30, 50, 200, 500],
+      pageSize: 100,
+      pageSizes: [30, 50, 100, 200, 500],
     },
     proxyConfig: {
       ajax: {
         query: async ({ page }: any) => {
-          const params = {
-            page: page.currentPage,
-            pageSize: page.pageSize,
-            keyword: props.searchForm.keyword || '',
-            manager: props.searchForm.manager || '',
-            startDate: props.dateRange[0].format('YYYY-MM-DD'),
-            endDate: props.dateRange[1].format('YYYY-MM-DD'),
-            mode: props.statisticsMode,
-          };
+          const currentCacheKey = getCacheKey();
+          const currentMode = props.statisticsMode;
 
-          const result = await getSalesStatistics(params);
-          return result;
+          // 检查对应模式的完整数据缓存
+          const cachedFullData = currentMode === 'quantity' ? cachedQuantityFullData.value : cachedOrdersFullData.value;
+
+          // 如果缓存键不同或没有缓存，从后端加载所有数据
+          if (cacheKey.value !== currentCacheKey || cachedFullData.length === 0) {
+            const params = {
+              page: 1,
+              pageSize: 10000, // 一次性加载所有数据
+              keyword: '',
+              manager: '',
+              startDate: props.dateRange[0].format('YYYY-MM-DD'),
+              endDate: props.dateRange[1].format('YYYY-MM-DD'),
+              mode: currentMode,
+            };
+
+            const result = await getSalesStatistics(params);
+
+            // 缓存完整数据
+            if (currentMode === 'quantity') {
+              cachedQuantityFullData.value = result.list || result.items || [];
+            } else {
+              cachedOrdersFullData.value = result.list || result.items || [];
+            }
+            cacheKey.value = currentCacheKey;
+          }
+
+          // 使用前端筛选
+          const fullData = currentMode === 'quantity' ? cachedQuantityFullData.value : cachedOrdersFullData.value;
+          const filteredData = getFilteredData(fullData);
+
+          // 前端分页
+          const startIndex = (page.currentPage - 1) * page.pageSize;
+          const endIndex = startIndex + page.pageSize;
+          const pageData = filteredData.slice(startIndex, endIndex);
+
+          return {
+            items: pageData,
+            total: filteredData.length,
+          };
         },
       },
     },
@@ -257,13 +345,22 @@ const [Grid, gridApi] = useVbenVxeGrid({
   },
 });
 
-// 监听搜索条件变化，重新加载数据
+// 监听搜索条件变化，只刷新表格不重新加载数据
 watch(
   () => props.searchForm,
   () => {
     gridApi.reload();
   },
   { deep: true }
+);
+
+// 监听统计模式变化，只刷新显示不重新加载数据
+watch(
+  () => props.statisticsMode,
+  () => {
+    // 强制刷新表格以更新格式化
+    gridApi.grid.refreshColumn();
+  }
 );
 </script>
 

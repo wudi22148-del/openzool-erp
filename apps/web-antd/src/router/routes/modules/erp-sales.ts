@@ -6,6 +6,7 @@ const routes: RouteRecordRaw[] = [
       icon: 'ant-design:line-chart-outlined',
       order: 3,
       title: '销售统计',
+      keepAlive: true, // 启用页面缓存
     },
     name: 'Sales',
     path: '/sales',

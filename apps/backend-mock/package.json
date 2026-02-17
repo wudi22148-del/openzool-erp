@@ -12,7 +12,8 @@
   "dependencies": {
     "@faker-js/faker": "catalog:",
     "jsonwebtoken": "catalog:",
-    "nitropack": "catalog:"
+    "nitropack": "catalog:",
+    "pg": "^8.18.0"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "catalog:",

@@ -5,7 +5,7 @@ export default defineEventHandler(async (event) => {
   const { startDate, endDate } = body || {};
 
   // 清空指定日期范围的日销数据
-  clearDailySales(startDate, endDate);
+  await clearDailySales(startDate, endDate);
 
   return {
     code: 0,

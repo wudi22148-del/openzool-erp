@@ -10,6 +10,7 @@
           style="width: 260px"
           allow-clear
           @pressEnter="handleSearch"
+          @update:value="(val) => { if (val === '') handleClearSearch(); }"
         >
           <template #suffix>
             <Button type="link" size="small" @click="handleSearch">
@@ -21,6 +22,8 @@
           v-model:value="searchForm.manager"
           placeholder="筛选管理人"
           allow-clear
+          show-search
+          :filter-option="filterManagerOption"
           style="width: 160px"
           @change="handleSearch"
         >
@@ -31,20 +34,14 @@
 
         <!-- 批量删除按钮 -->
         <Button
-          v-show="selectedRows.length > 0"
           danger
           @click="handleBatchDelete"
         >
           <template #icon>
             <DeleteOutlined />
           </template>
-          批量删除 ({{ selectedRows.length }})
+          批量删除
         </Button>
-
-        <!-- 调试信息 -->
-        <span v-if="selectedRows.length > 0" class="ml-2 text-xs text-gray-500">
-          已选中: {{ selectedRows.length }} 项
-        </span>
       </Space>
 
       <!-- 右侧：操作按钮 -->
@@ -120,18 +117,50 @@
         <!-- 平台 SKU 列 -->
         <template #platform-sku="{ row }">
           <div class="space-y-1.5 py-1">
-            <div v-if="row.temuSku" class="flex items-center text-[12px]">
-              <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-orange-100 text-orange-700 mr-2">
-                TEMU
-              </span>
-              <span class="text-gray-700">{{ row.temuSku }}</span>
+            <!-- TEMU SKU -->
+            <div v-if="row.temuSku" class="text-[12px]">
+              <div class="flex items-start">
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-orange-100 text-orange-700 mr-2 flex-shrink-0">
+                  TEMU
+                </span>
+                <div class="flex-1 min-w-0">
+                  <template v-if="getSkuArray(row.temuSku).length === 1">
+                    <span class="text-gray-700">{{ row.temuSku }}</span>
+                  </template>
+                  <template v-else>
+                    <div class="flex items-center">
+                      <span class="text-gray-700 truncate">{{ getSkuArray(row.temuSku)[0] }}</span>
+                      <Button type="link" size="small" class="ml-1 p-0 h-auto text-[11px]" @click="showSkuModal(row, 'temu')">
+                        +{{ getSkuArray(row.temuSku).length - 1 }} 更多
+                      </Button>
+                    </div>
+                  </template>
+                </div>
+              </div>
             </div>
-            <div v-if="row.sheinSku" class="flex items-center text-[12px]">
-              <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-sky-100 text-sky-700 mr-2">
-                SHEIN
-              </span>
-              <span class="text-gray-700">{{ row.sheinSku }}</span>
+
+            <!-- SHEIN SKU -->
+            <div v-if="row.sheinSku" class="text-[12px]">
+              <div class="flex items-start">
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-sky-100 text-sky-700 mr-2 flex-shrink-0">
+                  SHEIN
+                </span>
+                <div class="flex-1 min-w-0">
+                  <template v-if="getSkuArray(row.sheinSku).length === 1">
+                    <span class="text-gray-700">{{ row.sheinSku }}</span>
+                  </template>
+                  <template v-else>
+                    <div class="flex items-center">
+                      <span class="text-gray-700 truncate">{{ getSkuArray(row.sheinSku)[0] }}</span>
+                      <Button type="link" size="small" class="ml-1 p-0 h-auto text-[11px]" @click="showSkuModal(row, 'shein')">
+                        +{{ getSkuArray(row.sheinSku).length - 1 }} 更多
+                      </Button>
+                    </div>
+                  </template>
+                </div>
+              </div>
             </div>
+
             <div v-if="!row.temuSku && !row.sheinSku" class="text-gray-400 text-[12px]">-</div>
           </div>
         </template>
@@ -244,11 +273,29 @@
         </Form.Item>
       </Form>
     </Modal>
+
+    <!-- SKU 列表弹窗 -->
+    <Modal
+      v-model:open="skuModalVisible"
+      :title="`${skuModalPlatform === 'temu' ? 'TEMU' : 'SHEIN'} SKU 列表`"
+      width="600px"
+      :footer="null"
+    >
+      <div class="space-y-2">
+        <div
+          v-for="(sku, index) in skuModalList"
+          :key="index"
+          class="p-3 bg-gray-50 rounded border border-gray-200 text-[13px] text-gray-700"
+        >
+          {{ sku }}
+        </div>
+      </div>
+    </Modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { reactive, ref, watch } from 'vue';
 import { Button, Form, Image, Input, message, Modal, notification, Popconfirm, Select, SelectOption, Space, Upload } from 'ant-design-vue';
 import {
   DeleteOutlined,
@@ -259,7 +306,7 @@ import {
   UploadOutlined,
 } from '@ant-design/icons-vue';
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
-import { batchImportProducts, deleteProduct, getManagerList, getProductList, updateProduct } from '#/api/core/product';
+import { batchDeleteProducts, batchImportProducts, deleteProduct, getManagerList, getProductList, updateProduct } from '#/api/core/product';
 import { downloadProductTemplate, mapExcelToProduct, parseExcel } from '#/utils/excel';
 
 // 搜索表单
@@ -268,8 +315,34 @@ const searchForm = reactive({
   manager: undefined,
 });
 
+// 监听搜索关键词变化，当清空时自动刷新
+watch(() => searchForm.keyword, (newVal, oldVal) => {
+  // 当从有值变为空值时，自动刷新
+  if (oldVal && newVal === '') {
+    gridApi.reload();
+  }
+});
+
 // 选中的行
 const selectedRows = ref<any[]>([]);
+
+// SKU 列表弹窗状态
+const skuModalVisible = ref(false);
+const skuModalPlatform = ref<'temu' | 'shein'>('temu');
+const skuModalList = ref<string[]>([]);
+
+// 显示 SKU 列表弹窗
+function showSkuModal(row: any, platform: 'temu' | 'shein') {
+  skuModalPlatform.value = platform;
+  const skuString = platform === 'temu' ? row.temuSku : row.sheinSku;
+  skuModalList.value = getSkuArray(skuString);
+  skuModalVisible.value = true;
+}
+
+// 监听选中行变化
+watch(selectedRows, (newVal) => {
+  console.log('selectedRows changed:', newVal.length);
+}, { deep: true });
 
 // 产品弹窗
 const productModalVisible = ref(false);
@@ -299,6 +372,10 @@ const productForm = reactive({
 // 管理人列表
 const managerList = ref<Array<{ label: string; value: string }>>([]);
 
+// 所有产品数据缓存
+const allProductsData = ref<any[]>([]);
+const isDataLoaded = ref(false);
+
 // 加载管理人列表
 async function loadManagers() {
   try {
@@ -314,6 +391,55 @@ async function loadManagers() {
 
 loadManagers();
 
+// 加载所有产品数据
+async function loadAllProducts() {
+  if (isDataLoaded.value) return;
+
+  try {
+    const result = await getProductList({
+      page: 1,
+      pageSize: 10000, // 一次性加载所有数据
+      keyword: '',
+      manager: '',
+    });
+    console.log('加载产品数据结果:', result);
+    allProductsData.value = result.items || [];
+    console.log('缓存的产品数据数量:', allProductsData.value.length);
+    isDataLoaded.value = true;
+  } catch (error) {
+    console.error('加载产品数据失败:', error);
+  }
+}
+
+loadAllProducts();
+
+// 管理人筛选函数
+function filterManagerOption(input: string, option: any) {
+  return option.label.toLowerCase().includes(input.toLowerCase());
+}
+
+// 前端筛选数据
+function getFilteredData() {
+  let filtered = [...allProductsData.value];
+
+  // 关键词筛选
+  if (searchForm.keyword) {
+    const keyword = searchForm.keyword.toLowerCase();
+    filtered = filtered.filter(item =>
+      item.productName?.toLowerCase().includes(keyword) ||
+      item.skuName?.toLowerCase().includes(keyword) ||
+      item.warehouseSku?.toLowerCase().includes(keyword)
+    );
+  }
+
+  // 管理人筛选
+  if (searchForm.manager) {
+    filtered = filtered.filter(item => item.manager === searchForm.manager);
+  }
+
+  return filtered;
+}
+
 // 表格配置
 const [Grid, gridApi] = useVbenVxeGrid({
   gridOptions: {
@@ -326,14 +452,16 @@ const [Grid, gridApi] = useVbenVxeGrid({
     checkboxConfig: {
       highlight: true,
       reserve: true,
-      trigger: 'default',
     },
     columnConfig: {
       resizable: true,
     },
     checkboxEvents: {
-      change: () => {
-        updateSelectedRows();
+      change: (params: any) => {
+        console.log('Checkbox event params:', params);
+        const records = gridApi.getCheckboxRecords();
+        selectedRows.value = records;
+        console.log('Checkbox changed, selected:', records.length, records);
       },
     },
     columns: [
@@ -370,6 +498,7 @@ const [Grid, gridApi] = useVbenVxeGrid({
         title: '平台 SKU',
         field: 'platformSku',
         minWidth: 220,
+        align: 'left',
         slots: { default: 'platform-sku' },
       },
       {
@@ -424,23 +553,34 @@ const [Grid, gridApi] = useVbenVxeGrid({
     ],
     pagerConfig: {
       enabled: true,
-      pageSize: 30,
-      pageSizes: [30, 50, 200, 500],
+      pageSize: 100,
+      pageSizes: [30, 50, 100, 200, 500],
     },
     proxyConfig: {
       ajax: {
         query: async ({ page }) => {
-          const params = {
-            page: page.currentPage,
-            pageSize: page.pageSize,
-            keyword: searchForm.keyword || '',
-            manager: searchForm.manager || '',
+          console.log('表格查询被调用, page:', page);
+
+          // 等待数据加载完成
+          if (!isDataLoaded.value) {
+            await loadAllProducts();
+          }
+
+          // 使用前端筛选的数据
+          const filteredData = getFilteredData();
+          console.log('筛选后的数据数量:', filteredData.length);
+
+          // 前端分页
+          const startIndex = (page.currentPage - 1) * page.pageSize;
+          const endIndex = startIndex + page.pageSize;
+          const pageData = filteredData.slice(startIndex, endIndex);
+
+          console.log('返回的分页数据:', { items: pageData.length, total: filteredData.length });
+
+          return {
+            items: pageData,
+            total: filteredData.length,
           };
-
-          const result = await getProductList(params);
-
-          // 直接返回 API 结果，让默认的 response 配置处理
-          return result;
         },
       },
     },
@@ -453,6 +593,25 @@ const [Grid, gridApi] = useVbenVxeGrid({
 // 搜索
 function handleSearch() {
   gridApi.reload();
+}
+
+// 清除搜索
+function handleClearSearch() {
+  searchForm.keyword = '';
+  gridApi.reload();
+}
+
+// 刷新数据（重新从后端加载）
+async function refreshData() {
+  isDataLoaded.value = false;
+  await loadAllProducts();
+  gridApi.reload();
+}
+
+// 解析SKU数组（支持逗号分隔的多个SKU）
+function getSkuArray(skuString: string): string[] {
+  if (!skuString) return [];
+  return skuString.toString().split(',').map(s => s.trim()).filter(s => s);
 }
 
 // 更新选中的行
@@ -468,24 +627,35 @@ function updateSelectedRows() {
 
 // 批量删除
 async function handleBatchDelete() {
-  if (selectedRows.value.length === 0) {
+  console.log('批量删除按钮被点击');
+
+  // 使用 gridApi.grid 获取选中的行
+  const records = gridApi.grid.getCheckboxRecords();
+  console.log('获取到的选中行:', records);
+
+  if (records.length === 0) {
     message.warning('请先选择要删除的产品');
     return;
   }
 
   Modal.confirm({
     title: '确认批量删除',
-    content: `确定要删除选中的 ${selectedRows.value.length} 个产品吗？`,
+    content: `确定要删除选中的 ${records.length} 个产品吗？`,
     okText: '确定',
     cancelText: '取消',
     onOk: async () => {
+      console.log('用户确认删除');
+      const loading = message.loading('正在删除...', 0);
       try {
-        // 批量删除
-        await Promise.all(selectedRows.value.map(row => deleteProduct(row.id)));
-        message.success(`成功删除 ${selectedRows.value.length} 个产品`);
-        selectedRows.value = [];
-        gridApi.reload();
+        // 使用批量删除 API，一次性删除所有产品
+        const ids = records.map(row => row.id);
+        await batchDeleteProducts(ids);
+        loading();
+        message.success(`成功删除 ${records.length} 个产品`);
+        refreshData();
       } catch (error) {
+        loading();
+        console.error('批量删除失败:', error);
         message.error('批量删除失败');
       }
     },
@@ -595,7 +765,7 @@ async function handleProductSubmit() {
     }
 
     productModalVisible.value = false;
-    gridApi.reload();
+    refreshData();
   } catch (error) {
     console.error('产品提交失败:', error);
     message.error(isEdit.value ? '产品更新失败' : '产品添加失败');
@@ -631,7 +801,7 @@ async function handleDelete(row: any) {
   try {
     await deleteProduct(row.id);
     message.success('删除成功');
-    gridApi.reload();
+    refreshData();
   } catch (error) {
     message.error('删除失败');
   }
@@ -690,27 +860,43 @@ async function handleBeforeUpload(file: File) {
       return false;
     }
 
-    // 映射数据
-    const products = mapExcelToProduct(excelData);
+    // 映射数据（返回成功和失败的结果）
+    console.log('Excel原始数据:', excelData);
+    const { validProducts, errors } = mapExcelToProduct(excelData);
+    console.log('验证结果 - 有效产品:', validProducts.length, '错误:', errors);
 
-    if (products.length === 0) {
-      message.warning('没有有效的产品数据');
+    if (validProducts.length === 0) {
+      notification.error({
+        message: '导入失败',
+        description: `没有有效的产品数据，所有行都验证失败。\n错误详情：\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...' : ''}`,
+        duration: 10,
+      });
       loading();
       return false;
     }
 
-    // 调用 API 导入
-    await batchImportProducts(products);
+    // 调用 API 导入成功的产品
+    await batchImportProducts(validProducts);
 
     loading();
-    notification.success({
-      message: '导入成功',
-      description: `成功导入 ${products.length} 条产品数据`,
-      duration: 3,
-    });
+
+    // 显示导入结果
+    if (errors.length > 0) {
+      notification.warning({
+        message: '部分导入成功',
+        description: `成功导入 ${validProducts.length} 条，失败 ${errors.length} 条。失败原因：\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...' : ''}`,
+        duration: 8,
+      });
+    } else {
+      notification.success({
+        message: '导入成功',
+        description: `成功导入 ${validProducts.length} 条产品数据`,
+        duration: 3,
+      });
+    }
 
     // 刷新表格
-    gridApi.reload();
+    refreshData();
   } catch (error: any) {
     loading();
     notification.error({

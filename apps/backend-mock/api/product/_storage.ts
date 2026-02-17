@@ -1,76 +1,49 @@
-// 共享的产品数据存储
-let productStorage: any[] = [
-  {
-    id: '1',
-    productName: '无线蓝牙耳机',
-    skuName: '黑色-标准版',
-    warehouseSku: 'BT-EAR-001-BLK',
-    manager: '张三',
-  },
-  {
-    id: '2',
-    productName: '智能手环',
-    skuName: '运动版-蓝色',
-    warehouseSku: 'SM-BAND-002-BLU',
-    manager: '李四',
-  },
-  {
-    id: '3',
-    productName: '便携充电宝',
-    skuName: '10000mAh-白色',
-    warehouseSku: 'PB-10K-003-WHT',
-    manager: '张三',
-  },
-  {
-    id: '4',
-    productName: '无线鼠标',
-    skuName: '办公版-灰色',
-    warehouseSku: 'MS-WL-004-GRY',
-    manager: '王五',
-  },
-  {
-    id: '5',
-    productName: '机械键盘',
-    skuName: '青轴-RGB',
-    warehouseSku: 'KB-MEC-005-RGB',
-    manager: '李四',
-  },
-];
+import * as db from '../db/products';
 
-export function getProducts() {
-  console.log('getProducts called, current storage length:', productStorage.length);
-  return productStorage;
-}
-
-export function setProducts(products: any[]) {
-  productStorage = products;
-  console.log('setProducts called, new storage length:', productStorage.length);
-}
-
-export function addProducts(products: any[]) {
-  // 直接添加产品，保留原有的 ID
-  productStorage = [...productStorage, ...products];
-  console.log('addProducts called, added:', products.length, 'total:', productStorage.length);
-  console.log('First product in storage:', productStorage[0]);
+export async function getProducts(page?: number, pageSize?: number) {
+  const products = await db.getProducts(page, pageSize);
+  console.log('getProducts called, current storage length:', products.length);
   return products;
 }
 
-export function updateProduct(id: string, productData: any) {
-  const index = productStorage.findIndex(p => p.id === id);
-  if (index !== -1) {
-    productStorage[index] = { ...productStorage[index], ...productData, id };
-    console.log('updateProduct called, id:', id, 'updated product:', productStorage[index]);
-    return productStorage[index];
+export async function getProductsCount() {
+  return await db.getProductsCount();
+}
+
+export async function setProducts(products: any[]) {
+  await db.clearProducts();
+  await db.addProducts(products);
+  console.log('setProducts called, new storage length:', products.length);
+}
+
+export async function addProducts(products: any[]) {
+  const addedProducts = await db.addProducts(products);
+  console.log('addProducts called, added:', products.length, 'total:', addedProducts.length);
+  if (addedProducts.length > 0) {
+    console.log('First product in storage:', addedProducts[0]);
   }
-  return null;
+  return addedProducts;
 }
 
-export function deleteProduct(id: string) {
-  productStorage = productStorage.filter(p => p.id !== id);
-  console.log('deleteProduct called, id:', id, 'remaining:', productStorage.length);
+export async function updateProduct(id: string, productData: any) {
+  const updatedProduct = await db.updateProduct(id, productData);
+  if (updatedProduct) {
+    console.log('updateProduct called, id:', id, 'updated product:', updatedProduct);
+  }
+  return updatedProduct;
 }
 
-export function clearProducts() {
-  productStorage = [];
+export async function deleteProduct(id: string) {
+  await db.deleteProduct(id);
+  console.log('deleteProduct called, id:', id);
+}
+
+export async function batchDeleteProducts(ids: string[]) {
+  await db.batchDeleteProducts(ids);
+  console.log('batchDeleteProducts called, count:', ids.length);
+}
+
+export async function clearProducts() {
+  await db.clearProducts();
   console.log('clearProducts called, storage cleared');
 }

@@ -6,6 +6,7 @@ const routes: RouteRecordRaw[] = [
       icon: 'ant-design:appstore-outlined',
       order: 2,
       title: '产品管理',
+      keepAlive: true, // 启用页面缓存
     },
     name: 'Product',
     path: '/product',

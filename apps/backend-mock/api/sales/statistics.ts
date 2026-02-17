@@ -8,7 +8,7 @@ function seededRandom(seed: number) {
 }
 
 // 生成模拟的日销数据
-function generateMockSalesData(
+async function generateMockSalesData(
   products: any[],
   startDate: string,
   endDate: string,
@@ -19,7 +19,16 @@ function generateMockSalesData(
   const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
   // 获取已上传的日销数据
-  const uploadedSales = getDailySales();
+  const uploadedSales = await getDailySales();
+
+  console.log('统计查询参数:', { startDate, endDate, mode, uploadedSalesCount: uploadedSales.length });
+  if (uploadedSales.length > 0) {
+    console.log('第一条日销数据:', uploadedSales[0]);
+  }
+  console.log('产品数量:', products.length);
+  if (products.length > 0) {
+    console.log('第一个产品:', products[0]);
+  }
 
   // 按日期和SKU组织上传的数据
   const salesMap = new Map<string, number>();
@@ -70,41 +79,25 @@ function generateMockSalesData(
       const dateStr = currentDate.toISOString().split('T')[0];
       const field = `date_${dateStr.replace(/-/g, '_')}`;
 
-      // 检查该日期是否被清除
-      if (isDateCleared(dateStr)) {
-        // 如果日期被清除，显示0
-        dailySales[field] = 0;
-        trendData.push(0);
-      } else {
-        // 先检查是否有上传的数据
-        const key = `${dateStr}_${product.warehouseSku}`;
-        let sales = 0;
+      // 只使用上传的真实数据，不生成模拟数据
+      const key = `${dateStr}_${product.warehouseSku}`;
+      let sales = 0;
 
-        if (mode === 'orders') {
-          // 订单数量模式
-          if (ordersMap.has(key)) {
-            sales = ordersMap.get(key)!;
-          } else {
-            // 使用模拟数据：随机生成0.5-2.5单
-            const seed = index * 1000 + i;
-            sales = Number((0.5 + seededRandom(seed) * 2).toFixed(2));
-          }
-        } else {
-          // 销售数量模式
-          if (salesMap.has(key)) {
-            sales = salesMap.get(key)!;
-          } else {
-            // 使用模拟数据
-            const seed = index * 1000 + i;
-            const baseSales = 5 + seededRandom(seed) * 45; // 5-50 的基础销量
-            sales = Math.floor(baseSales);
-          }
+      if (mode === 'orders') {
+        // 订单数量模式
+        if (ordersMap.has(key)) {
+          sales = ordersMap.get(key)!;
         }
-
-        dailySales[field] = sales;
-        trendData.push(sales);
-        totalSales += sales;
+      } else {
+        // 销售数量模式
+        if (salesMap.has(key)) {
+          sales = salesMap.get(key)!;
+        }
       }
+
+      dailySales[field] = sales;
+      trendData.push(sales);
+      totalSales += sales;
     }
 
     const avgDailySales = totalSales / days;
@@ -143,7 +136,7 @@ export default defineEventHandler(async (event) => {
   }
 
   // 获取所有产品
-  const allProducts = getProducts();
+  const allProducts = await getProducts();
 
   if (allProducts.length === 0) {
     return {
@@ -156,7 +149,7 @@ export default defineEventHandler(async (event) => {
   }
 
   // 生成销售统计数据
-  let salesData = generateMockSalesData(allProducts, startDate, endDate, mode);
+  let salesData = await generateMockSalesData(allProducts, startDate, endDate, mode);
 
   // 模糊搜索过滤
   if (keyword) {
@@ -173,11 +166,54 @@ export default defineEventHandler(async (event) => {
     salesData = salesData.filter((item) => item.manager === manager);
   }
 
+  // 过滤掉所有日期销量都为0的产品（总销量为0）
+  salesData = salesData.filter((item) => item.totalSales > 0);
+
+  // 计算每个日期列的总销量，过滤掉全为0的日期列
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  const validDates: string[] = [];
+
+  for (let i = 0; i < days; i++) {
+    const currentDate = new Date(start);
+    currentDate.setDate(start.getDate() + i);
+    const dateStr = currentDate.toISOString().split('T')[0];
+    const field = `date_${dateStr.replace(/-/g, '_')}`;
+
+    // 检查这一天是否有任何产品有销量
+    const hasData = salesData.some((item) => item[field] > 0);
+    if (hasData) {
+      validDates.push(field);
+    }
+  }
+
+  // 从每个产品数据中移除无效的日期字段
+  salesData = salesData.map((item) => {
+    const filteredItem: any = {
+      id: item.id,
+      manager: item.manager,
+      productName: item.productName,
+      skuName: item.skuName,
+      warehouseSku: item.warehouseSku,
+      totalSales: item.totalSales,
+      avgDailySales: item.avgDailySales,
+      trendData: item.trendData,
+    };
+
+    // 只保留有效的日期字段
+    validDates.forEach((dateField) => {
+      filteredItem[dateField] = item[dateField];
+    });
+
+    return filteredItem;
+  });
+
   // 分页
   const total = salesData.length;
-  const start = (page - 1) * pageSize;
-  const end = start + pageSize;
-  const items = salesData.slice(start, end);
+  const start_idx = (page - 1) * pageSize;
+  const end_idx = start_idx + pageSize;
+  const items = salesData.slice(start_idx, end_idx);
 
   return {
     code: 0,

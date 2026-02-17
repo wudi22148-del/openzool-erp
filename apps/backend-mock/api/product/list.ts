@@ -95,14 +95,8 @@ export default defineEventHandler(async (event) => {
   const keyword = (query.keyword as string) || '';
   const manager = (query.manager as string) || '';
 
-  // 从共享存储获取产品数据，如果为空则生成默认数据
-  let allProducts = getProducts();
-  // 注释掉自动生成模拟数据，让用户手动导入测试数据
-  // if (allProducts.length === 0) {
-  //   allProducts = generateMockProducts();
-  //   // 将生成的模拟数据保存到存储中，这样编辑和删除功能才能正常工作
-  //   setProducts(allProducts);
-  // }
+  // 从数据库获取产品数据
+  let allProducts = await getProducts();
 
   console.log('获取产品列表，总数:', allProducts.length);
   if (allProducts.length > 0) {
@@ -116,8 +110,8 @@ export default defineEventHandler(async (event) => {
       (p) =>
         p.productName.includes(keyword) ||
         p.skuName.includes(keyword) ||
-        p.temuSku.includes(keyword) ||
-        p.sheinSku.includes(keyword) ||
+        (p.temuSku && String(p.temuSku).includes(keyword)) ||
+        (p.sheinSku && String(p.sheinSku).includes(keyword)) ||
         p.warehouseSku.includes(keyword),
     );
   }

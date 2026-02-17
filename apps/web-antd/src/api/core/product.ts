@@ -34,3 +34,10 @@ export async function getManagerList() {
 export async function deleteProduct(id: string) {
   return requestClient.delete(`/product/${id}`);
 }
+
+/**
+ * 批量删除产品
+ */
+export async function batchDeleteProducts(ids: string[]) {
+  return requestClient.post('/product/batch-delete', { ids });
+}

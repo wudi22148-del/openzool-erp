@@ -25,7 +25,7 @@
         <Button type="primary">新增入库</Button>
         <Button class="ml-2">新增出库</Button>
       </div>
-      <Table :columns="columns" :data-source="[]" :pagination="{ pageSize: 10 }">
+      <Table :columns="columns" :data-source="[]" :pagination="{ pageSize: 100 }">
         <template #emptyText>
           <Empty description="暂无数据" />
         </template>
