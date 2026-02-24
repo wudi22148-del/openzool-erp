@@ -280,10 +280,10 @@ async function handleBeforeUpload(file: File) {
     // 检查是否有缺失的SKU警告
     // 注意：由于 responseReturn: 'data'，result 就是后端返回的 data 字段
     if (result?.missingSkus && result.missingSkus.length > 0) {
-      notification.warning({
-        message: '部分数据导入成功',
-        description: `成功导入 ${result.uploadedCount} 条数据（${result.uploadedQuantity} 件销量），跳过 ${result.skippedCount} 条数据（${result.skippedQuantity} 件销量）。\n以下 ${result.missingCount} 个SKU不在产品库中：\n${result.missingSkus.slice(0, 10).join(', ')}${result.missingCount > 10 ? '...' : ''}`,
-        duration: 10,
+      Modal.warning({
+        title: '部分数据导入成功',
+        width: 600,
+        content: `成功导入 ${result.uploadedCount} 条数据（${result.uploadedQuantity} 件销量），跳过 ${result.skippedCount} 条数据（${result.skippedQuantity} 件销量）。\n\n以下 ${result.missingCount} 个SKU不在产品库中：\n${result.missingSkus.join('\n')}`,
       });
     } else {
       notification.success({

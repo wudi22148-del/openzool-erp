@@ -251,12 +251,13 @@ export function parseDailySalesExcel(file: File): Promise<any[]> {
           let formattedDate: string;
           if (typeof date === 'number') {
             // Excel日期序列号转换为标准日期格式
-            // 使用 1900-01-00 (即 1899-12-31) 作为起点，因为Excel将1900-01-01视为第1天
-            const excelEpoch = new Date(1900, 0, 0);
+            // Excel有已知bug：错误地将1900年视为闰年，序列号>59时偏移1天
+            // 使用UTC 1899-12-30作为基准可以正确补偿这个偏移，同时避免时区问题
+            const excelEpoch = new Date(Date.UTC(1899, 11, 30));
             const dateObj = new Date(excelEpoch.getTime() + date * 86400000);
-            const year = dateObj.getFullYear();
-            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-            const day = String(dateObj.getDate()).padStart(2, '0');
+            const year = dateObj.getUTCFullYear();
+            const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getUTCDate()).padStart(2, '0');
             formattedDate = `${year}-${month}-${day}`;
           } else {
             formattedDate = String(date).trim();

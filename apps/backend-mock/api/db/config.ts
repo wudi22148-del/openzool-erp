@@ -6,7 +6,7 @@ const pool = new Pool({
   port: 5432,
   database: 'openzool_erp',
   user: 'postgres',
-  password: '123456',
+  password: 'OpZ_erp2026!Sec',
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,

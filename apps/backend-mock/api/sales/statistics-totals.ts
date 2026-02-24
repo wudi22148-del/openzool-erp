@@ -46,47 +46,84 @@ export default defineEventHandler(async (event) => {
       paramIndex++;
     }
 
-    let aggregateField = 'SUM(ds.sales_quantity)';
-    if (mode === 'orders') {
-      aggregateField = `SUM(
-        CASE
-          WHEN ds.order_number IS NOT NULL THEN
-            ds.sales_quantity / NULLIF((
-              SELECT SUM(ds2.sales_quantity)
-              FROM daily_sales ds2
-              WHERE ds2.date = ds.date
-              AND ds2.order_number = ds.order_number
-            ), 0)
-          ELSE 1
-        END
-      )`;
-    }
+    let totalSalesQuery: string;
+    let dailyTotalsQuery: string;
 
-    // 查询总销量
-    const totalSalesQuery = `
-      SELECT ${aggregateField} as total_sales
-      FROM products p
-      INNER JOIN daily_sales ds ON p.warehouse_sku = ds.warehouse_sku
-      WHERE ds.date >= $${paramIndex} AND ds.date <= $${paramIndex + 1}
-      ${productFilter}
-    `;
+    if (mode === 'orders') {
+      // 订单数量模式：用CTE预计算每个订单的总销量
+      totalSalesQuery = `
+        WITH order_totals AS (
+          SELECT date, order_number, SUM(sales_quantity) as order_total
+          FROM daily_sales
+          WHERE date >= $${paramIndex} AND date <= $${paramIndex + 1}
+            AND order_number IS NOT NULL
+          GROUP BY date, order_number
+        )
+        SELECT SUM(
+          CASE
+            WHEN ds.order_number IS NOT NULL THEN
+              ds.sales_quantity::numeric / NULLIF(ot.order_total, 0)
+            ELSE 1
+          END
+        ) as total_sales
+        FROM products p
+        INNER JOIN daily_sales ds ON p.warehouse_sku = ds.warehouse_sku
+        LEFT JOIN order_totals ot ON ds.date = ot.date AND ds.order_number = ot.order_number
+        WHERE ds.date >= $${paramIndex} AND ds.date <= $${paramIndex + 1}
+        ${productFilter}
+      `;
+
+      dailyTotalsQuery = `
+        WITH order_totals AS (
+          SELECT date, order_number, SUM(sales_quantity) as order_total
+          FROM daily_sales
+          WHERE date >= $${paramIndex} AND date <= $${paramIndex + 1}
+            AND order_number IS NOT NULL
+          GROUP BY date, order_number
+        )
+        SELECT
+          ds.date,
+          SUM(
+            CASE
+              WHEN ds.order_number IS NOT NULL THEN
+                ds.sales_quantity::numeric / NULLIF(ot.order_total, 0)
+              ELSE 1
+            END
+          ) as daily_total
+        FROM products p
+        INNER JOIN daily_sales ds ON p.warehouse_sku = ds.warehouse_sku
+        LEFT JOIN order_totals ot ON ds.date = ot.date AND ds.order_number = ot.order_number
+        WHERE ds.date >= $${paramIndex} AND ds.date <= $${paramIndex + 1}
+        ${productFilter}
+        GROUP BY ds.date
+        ORDER BY ds.date DESC
+      `;
+    } else {
+      // 销售数量模式
+      totalSalesQuery = `
+        SELECT SUM(ds.sales_quantity) as total_sales
+        FROM products p
+        INNER JOIN daily_sales ds ON p.warehouse_sku = ds.warehouse_sku
+        WHERE ds.date >= $${paramIndex} AND ds.date <= $${paramIndex + 1}
+        ${productFilter}
+      `;
+
+      dailyTotalsQuery = `
+        SELECT
+          ds.date,
+          SUM(ds.sales_quantity) as daily_total
+        FROM products p
+        INNER JOIN daily_sales ds ON p.warehouse_sku = ds.warehouse_sku
+        WHERE ds.date >= $${paramIndex} AND ds.date <= $${paramIndex + 1}
+        ${productFilter}
+        GROUP BY ds.date
+        ORDER BY ds.date DESC
+      `;
+    }
 
     const totalSalesParams = [...productParams, startDate, endDate];
     const totalSalesResult = await pool.query(totalSalesQuery, totalSalesParams);
     const totalSales = parseFloat(totalSalesResult.rows[0]?.total_sales || 0);
-
-    // 查询每日总销量
-    const dailyTotalsQuery = `
-      SELECT
-        ds.date,
-        ${aggregateField} as daily_total
-      FROM products p
-      INNER JOIN daily_sales ds ON p.warehouse_sku = ds.warehouse_sku
-      WHERE ds.date >= $${paramIndex} AND ds.date <= $${paramIndex + 1}
-      ${productFilter}
-      GROUP BY ds.date
-      ORDER BY ds.date DESC
-    `;
 
     const dailyTotalsResult = await pool.query(dailyTotalsQuery, totalSalesParams);
 

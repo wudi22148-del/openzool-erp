@@ -76,63 +76,86 @@ export default defineEventHandler(async (event) => {
     // 第二步：获取分页的产品销售统计
     const offset = (page - 1) * pageSize;
 
-    let aggregateField = 'SUM(ds.sales_quantity)';
+    let statsQuery: string;
     if (mode === 'orders') {
-      // 订单数量模式：计算订单数
-      aggregateField = `SUM(
-        CASE
-          WHEN ds.order_number IS NOT NULL THEN
-            ds.sales_quantity / NULLIF((
-              SELECT SUM(ds2.sales_quantity)
-              FROM daily_sales ds2
-              WHERE ds2.date = ds.date
-              AND ds2.order_number = ds.order_number
-            ), 0)
-          ELSE 1
-        END
-      )`;
-    }
-
-    const statsQuery = `
-      WITH product_stats AS (
+      // 订单数量模式：用CTE预计算每个订单的总销量，避免相关子查询
+      statsQuery = `
+        WITH order_totals AS (
+          SELECT date, order_number, SUM(sales_quantity) as order_total
+          FROM daily_sales
+          WHERE date >= $${paramIndex} AND date <= $${paramIndex + 1}
+            AND order_number IS NOT NULL
+          GROUP BY date, order_number
+        ),
+        sales_with_ratio AS (
+          SELECT
+            ds.warehouse_sku,
+            ds.date,
+            SUM(
+              CASE
+                WHEN ds.order_number IS NOT NULL THEN
+                  ds.sales_quantity::numeric / NULLIF(ot.order_total, 0)
+                ELSE 1
+              END
+            ) as order_qty
+          FROM daily_sales ds
+          LEFT JOIN order_totals ot ON ds.date = ot.date AND ds.order_number = ot.order_number
+          WHERE ds.date >= $${paramIndex} AND ds.date <= $${paramIndex + 1}
+          GROUP BY ds.warehouse_sku, ds.date
+        ),
+        product_stats AS (
+          SELECT
+            p.id,
+            p.manager,
+            p.product_name,
+            p.sku_name,
+            p.warehouse_sku,
+            SUM(sr.order_qty) as total_sales
+          FROM products p
+          INNER JOIN sales_with_ratio sr ON p.warehouse_sku = sr.warehouse_sku
+          WHERE 1=1 ${productFilter}
+          GROUP BY p.id, p.manager, p.product_name, p.sku_name, p.warehouse_sku
+          ORDER BY total_sales DESC
+          LIMIT $${paramIndex + 2} OFFSET $${paramIndex + 3}
+        )
         SELECT
-          p.id,
-          p.manager,
-          p.product_name,
-          p.sku_name,
-          p.warehouse_sku,
-          ${aggregateField} as total_sales
-        FROM products p
-        INNER JOIN daily_sales ds ON p.warehouse_sku = ds.warehouse_sku
-        WHERE ds.date >= $${paramIndex} AND ds.date <= $${paramIndex + 1}
-        ${productFilter}
-        GROUP BY p.id, p.manager, p.product_name, p.sku_name, p.warehouse_sku
-        ORDER BY total_sales DESC
-        LIMIT $${paramIndex + 2} OFFSET $${paramIndex + 3}
-      )
-      SELECT
-        ps.*,
-        ds.date,
-        ${mode === 'orders' ? `
-          SUM(
-            CASE
-              WHEN ds.order_number IS NOT NULL THEN
-                ds.sales_quantity / NULLIF((
-                  SELECT SUM(ds2.sales_quantity)
-                  FROM daily_sales ds2
-                  WHERE ds2.date = ds.date
-                  AND ds2.order_number = ds.order_number
-                ), 0)
-              ELSE 1
-            END
-          )
-        ` : 'SUM(ds.sales_quantity)'} as daily_sales
-      FROM product_stats ps
-      LEFT JOIN daily_sales ds ON ps.warehouse_sku = ds.warehouse_sku
-        AND ds.date >= $${paramIndex} AND ds.date <= $${paramIndex + 1}
-      GROUP BY ps.id, ps.manager, ps.product_name, ps.sku_name, ps.warehouse_sku, ps.total_sales, ds.date
-      ORDER BY ps.total_sales DESC, ds.date DESC
-    `;
+          ps.*,
+          sr.date,
+          sr.order_qty as daily_sales
+        FROM product_stats ps
+        LEFT JOIN sales_with_ratio sr ON ps.warehouse_sku = sr.warehouse_sku
+        ORDER BY ps.total_sales DESC, sr.date DESC
+      `;
+    } else {
+      // 销售数量模式：原有逻辑
+      statsQuery = `
+        WITH product_stats AS (
+          SELECT
+            p.id,
+            p.manager,
+            p.product_name,
+            p.sku_name,
+            p.warehouse_sku,
+            SUM(ds.sales_quantity) as total_sales
+          FROM products p
+          INNER JOIN daily_sales ds ON p.warehouse_sku = ds.warehouse_sku
+          WHERE ds.date >= $${paramIndex} AND ds.date <= $${paramIndex + 1}
+          ${productFilter}
+          GROUP BY p.id, p.manager, p.product_name, p.sku_name, p.warehouse_sku
+          ORDER BY total_sales DESC
+          LIMIT $${paramIndex + 2} OFFSET $${paramIndex + 3}
+        )
+        SELECT
+          ps.*,
+          ds.date,
+          SUM(ds.sales_quantity) as daily_sales
+        FROM product_stats ps
+        LEFT JOIN daily_sales ds ON ps.warehouse_sku = ds.warehouse_sku
+          AND ds.date >= $${paramIndex} AND ds.date <= $${paramIndex + 1}
+        GROUP BY ps.id, ps.manager, ps.product_name, ps.sku_name, ps.warehouse_sku, ps.total_sales, ds.date
+        ORDER BY ps.total_sales DESC, ds.date DESC
+      `;
+    }
 
     const statsParams = [...productParams, startDate, endDate, pageSize, offset];
     const statsResult = await pool.query(statsQuery, statsParams);

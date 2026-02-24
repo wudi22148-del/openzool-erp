@@ -259,7 +259,7 @@ const [Grid, gridApi] = useVbenVxeGrid({
     columns: allColumns.value,
     pagerConfig: {
       enabled: true,
-      pageSize: 100,
+      pageSize: 50,
       pageSizes: [30, 50, 100, 200, 500],
     },
     proxyConfig: {

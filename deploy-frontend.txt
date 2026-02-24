@@ -1,0 +1,26 @@
+前端部署步骤：
+
+方案1：手动上传文件
+1. 将 e:\Claude code test\erp-admin\apps\web-antd\dist.tar.gz 上传到服务器 /tmp 目录
+2. SSH 登录服务器后执行：
+   cd /tmp
+   tar -xzf dist.tar.gz
+   rm -rf /var/www/openzool-erp/*
+   cp -r dist/* /var/www/openzool-erp/
+   rm -rf dist dist.tar.gz
+
+方案2：在服务器上构建（推荐）
+SSH 登录服务器后执行：
+   cd /root/erp-admin
+   git pull
+   cd apps/web-antd
+   pnpm install
+   pnpm build
+   rm -rf /var/www/openzool-erp/*
+   cp -r dist/* /var/www/openzool-erp/
+
+修复内容：
+- 删除了前端静态路由文件 apps/web-antd/src/router/routes/modules/erp-user.ts
+- 现在用户管理页面完全由后端动态控制
+- 运营角色(operator)无法访问 /user 路径，即使直接输入 URL 也会被拒绝
+- 只有 admin 和 supervisor 角色可以看到和访问用户管理页面

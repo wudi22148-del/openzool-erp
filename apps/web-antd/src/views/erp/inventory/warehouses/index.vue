@@ -24,7 +24,7 @@
       <div class="mb-4">
         <Button type="primary">新增仓库</Button>
       </div>
-      <Table :columns="columns" :data-source="[]" :pagination="{ pageSize: 100 }">
+      <Table :columns="columns" :data-source="[]" :pagination="{ pageSize: 50 }">
         <template #emptyText>
           <Empty description="暂无数据" />
         </template>

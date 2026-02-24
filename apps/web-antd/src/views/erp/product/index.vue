@@ -570,7 +570,7 @@ const [Grid, gridApi] = useVbenVxeGrid({
     ],
     pagerConfig: {
       enabled: true,
-      pageSize: 100,
+      pageSize: 50,
       pageSizes: [30, 50, 100, 200, 500],
     },
     proxyConfig: {
@@ -794,18 +794,7 @@ async function handleProductSubmit() {
       const result = await updateProduct(productForm.id, productData);
       console.log('更新产品返回:', result);
       message.success('产品更新成功');
-
-      // 更新表格中的当前行数据（保留图片）
-      const currentData = gridApi.grid.getTableData().fullData;
-      const index = currentData.findIndex((item: any) => item.id === productForm.id);
-      if (index !== -1) {
-        currentData[index] = {
-          ...currentData[index],
-          ...productData,
-          id: productForm.id,
-        };
-        gridApi.grid.reloadData(currentData);
-      }
+      refreshData();
     } else {
       // 新增产品
       const result = await batchImportProducts([productData]);
