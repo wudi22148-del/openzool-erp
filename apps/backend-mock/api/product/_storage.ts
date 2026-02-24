@@ -10,6 +10,19 @@ export async function getProductsCount() {
   return await db.getProductsCount();
 }
 
+export async function getFilteredProducts(
+  page: number,
+  pageSize: number,
+  keyword?: string,
+  manager?: string
+) {
+  return await db.getFilteredProducts(page, pageSize, keyword, manager);
+}
+
+export async function getProductById(id: string) {
+  return await db.getProductById(id);
+}
+
 export async function setProducts(products: any[]) {
   await db.clearProducts();
   await db.addProducts(products);

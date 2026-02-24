@@ -47,10 +47,12 @@ export function verifyAccessToken(
 
     const username = decoded.username;
     const user = MOCK_USERS.find((item) => item.username === username);
-    if (!user) {
-      return null;
+    if (user) {
+      const { password: _pwd, ...userinfo } = user;
+      return userinfo;
     }
-    const { password: _pwd, ...userinfo } = user;
+    // 数据库创建的用户不在 MOCK_USERS 中，直接返回 JWT 中的信息
+    const { iat: _iat, exp: _exp, password: _pwd, ...userinfo } = decoded;
     return userinfo;
   } catch {
     return null;
@@ -66,10 +68,12 @@ export function verifyRefreshToken(
     const user = MOCK_USERS.find(
       (item) => item.username === username,
     ) as UserInfo;
-    if (!user) {
-      return null;
+    if (user) {
+      const { password: _pwd, ...userinfo } = user;
+      return userinfo;
     }
-    const { password: _pwd, ...userinfo } = user;
+    // 数据库创建的用户不在 MOCK_USERS 中，直接返回 JWT 中的信息
+    const { iat: _iat, exp: _exp, password: _pwd, ...userinfo } = decoded;
     return userinfo;
   } catch {
     return null;

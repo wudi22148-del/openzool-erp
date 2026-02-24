@@ -173,6 +173,19 @@
           <span v-else class="text-gray-400 text-[13px]">-</span>
         </template>
 
+        <!-- 利润列 -->
+        <template #profit="{ row }">
+          <div v-if="row.profit || row.profitRate" class="text-center py-1">
+            <div class="text-[14px] font-medium" :class="row.profit >= 0 ? 'text-green-600' : 'text-red-600'">
+              ¥{{ row.profit ? row.profit.toFixed(2) : '0.00' }}
+            </div>
+            <div class="text-[11px] text-gray-500 mt-0.5">
+              {{ row.profitRate ? row.profitRate.toFixed(2) : '0.00' }}%
+            </div>
+          </div>
+          <span v-else class="text-gray-400 text-[13px]">-</span>
+        </template>
+
         <!-- 操作列 -->
         <template #action="{ row }">
           <Space>
@@ -241,6 +254,9 @@
         <Form.Item label="国内运费" required>
           <Input v-model:value="productForm.domesticShipping" type="number" placeholder="请输入国内运费" />
         </Form.Item>
+        <Form.Item label="头程运费" required>
+          <Input v-model:value="productForm.firstLegShipping" type="number" placeholder="请输入头程运费" />
+        </Form.Item>
         <Form.Item label="海外运费" required>
           <Input v-model:value="productForm.overseasShipping" type="number" placeholder="请输入海外运费" />
         </Form.Item>
@@ -306,7 +322,7 @@ import {
   UploadOutlined,
 } from '@ant-design/icons-vue';
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
-import { batchDeleteProducts, batchImportProducts, deleteProduct, getManagerList, getProductList, updateProduct } from '#/api/core/product';
+import { batchDeleteProducts, batchImportProducts, deleteProduct, getManagerList, getProductById, getProductList, updateProduct } from '#/api/core/product';
 import { downloadProductTemplate, mapExcelToProduct, parseExcel } from '#/utils/excel';
 
 // 搜索表单
@@ -363,6 +379,7 @@ const productForm = reactive({
   productCost: '',
   tax: '',
   domesticShipping: '',
+  firstLegShipping: '',
   overseasShipping: '',
   manager: '',
   stock: '',
@@ -393,22 +410,8 @@ loadManagers();
 
 // 加载所有产品数据
 async function loadAllProducts() {
-  if (isDataLoaded.value) return;
-
-  try {
-    const result = await getProductList({
-      page: 1,
-      pageSize: 10000, // 一次性加载所有数据
-      keyword: '',
-      manager: '',
-    });
-    console.log('加载产品数据结果:', result);
-    allProductsData.value = result.items || [];
-    console.log('缓存的产品数据数量:', allProductsData.value.length);
-    isDataLoaded.value = true;
-  } catch (error) {
-    console.error('加载产品数据失败:', error);
-  }
+  // 不再预加载所有数据，改为按需加载
+  isDataLoaded.value = true;
 }
 
 loadAllProducts();
@@ -523,11 +526,25 @@ const [Grid, gridApi] = useVbenVxeGrid({
         formatter: ({ cellValue }) => (cellValue ? `¥${cellValue.toFixed(2)}` : '-'),
       },
       {
+        title: '头程运费',
+        field: 'firstLegShipping',
+        width: 120,
+        align: 'right',
+        formatter: ({ cellValue }) => (cellValue ? `¥${cellValue.toFixed(2)}` : '-'),
+      },
+      {
         title: '海外运费',
         field: 'overseasShipping',
         width: 120,
         align: 'right',
         formatter: ({ cellValue }) => (cellValue ? `¥${cellValue.toFixed(2)}` : '-'),
+      },
+      {
+        title: '利润',
+        field: 'profit',
+        width: 120,
+        align: 'center',
+        slots: { default: 'profit' },
       },
       {
         title: '管理人',
@@ -561,26 +578,28 @@ const [Grid, gridApi] = useVbenVxeGrid({
         query: async ({ page }) => {
           console.log('表格查询被调用, page:', page);
 
-          // 等待数据加载完成
-          if (!isDataLoaded.value) {
-            await loadAllProducts();
+          // 使用后端分页，直接调用API
+          try {
+            const result = await getProductList({
+              page: page.currentPage,
+              pageSize: page.pageSize,
+              keyword: searchForm.keyword,
+              manager: searchForm.manager,
+            });
+
+            console.log('后端返回数据:', { items: result.items?.length, total: result.total });
+
+            return {
+              items: result.items || [],
+              total: result.total || 0,
+            };
+          } catch (error) {
+            console.error('加载产品列表失败:', error);
+            return {
+              items: [],
+              total: 0,
+            };
           }
-
-          // 使用前端筛选的数据
-          const filteredData = getFilteredData();
-          console.log('筛选后的数据数量:', filteredData.length);
-
-          // 前端分页
-          const startIndex = (page.currentPage - 1) * page.pageSize;
-          const endIndex = startIndex + page.pageSize;
-          const pageData = filteredData.slice(startIndex, endIndex);
-
-          console.log('返回的分页数据:', { items: pageData.length, total: filteredData.length });
-
-          return {
-            items: pageData,
-            total: filteredData.length,
-          };
         },
       },
     },
@@ -603,8 +622,6 @@ function handleClearSearch() {
 
 // 刷新数据（重新从后端加载）
 async function refreshData() {
-  isDataLoaded.value = false;
-  await loadAllProducts();
   gridApi.reload();
 }
 
@@ -679,6 +696,7 @@ function resetProductForm() {
   productForm.productCost = '';
   productForm.tax = '';
   productForm.domesticShipping = '';
+  productForm.firstLegShipping = '';
   productForm.overseasShipping = '';
   productForm.manager = '';
   productForm.stock = '';
@@ -693,40 +711,51 @@ function handleAdd() {
 }
 
 // 编辑产品
-function handleEdit(row: any) {
+async function handleEdit(row: any) {
   isEdit.value = true;
-  productForm.id = row.id;
-  productForm.productName = row.productName;
-  productForm.skuName = row.skuName;
-  productForm.warehouseSku = row.warehouseSku;
-  productForm.temuSku = row.temuSku || '';
-  productForm.sheinSku = row.sheinSku || '';
 
-  // 确保 specs 对象正确赋值
-  if (row.specs && typeof row.specs === 'object') {
-    productForm.specs = {
-      length: row.specs.length || '',
-      width: row.specs.width || '',
-      height: row.specs.height || '',
-      weight: row.specs.weight || '',
-    };
-  } else {
-    productForm.specs = {
-      length: '',
-      width: '',
-      height: '',
-      weight: '',
-    };
+  // 从服务器获取完整的产品信息（包含图片）
+  try {
+    const product = await getProductById(String(row.id));
+    console.log('获取产品详情响应:', product);
+
+    productForm.id = product.id;
+    productForm.productName = product.productName;
+    productForm.skuName = product.skuName;
+    productForm.warehouseSku = product.warehouseSku;
+    productForm.temuSku = product.temuSku || '';
+    productForm.sheinSku = product.sheinSku || '';
+
+    // 确保 specs 对象正确赋值
+    if (product.specs && typeof product.specs === 'object') {
+      productForm.specs = {
+        length: product.specs.length || '',
+        width: product.specs.width || '',
+        height: product.specs.height || '',
+        weight: product.specs.weight || '',
+      };
+    } else {
+      productForm.specs = {
+        length: '',
+        width: '',
+        height: '',
+        weight: '',
+      };
+    }
+
+    productForm.productCost = String(product.productCost || '');
+    productForm.tax = String(product.tax || '');
+    productForm.domesticShipping = String(product.domesticShipping || '');
+    productForm.firstLegShipping = String(product.firstLegShipping || '');
+    productForm.overseasShipping = String(product.overseasShipping || '');
+    productForm.manager = product.manager;
+    productForm.stock = product.stock ? String(product.stock) : '';
+    productForm.imageUrl = product.imageUrl || '';
+    productModalVisible.value = true;
+  } catch (error) {
+    console.error('获取产品详情失败:', error);
+    message.error('获取产品详情失败');
   }
-
-  productForm.productCost = String(row.productCost || '');
-  productForm.tax = String(row.tax || '');
-  productForm.domesticShipping = String(row.domesticShipping || '');
-  productForm.overseasShipping = String(row.overseasShipping || '');
-  productForm.manager = row.manager;
-  productForm.stock = row.stock ? String(row.stock) : '';
-  productForm.imageUrl = row.imageUrl || '';
-  productModalVisible.value = true;
 }
 
 // 提交产品表单
@@ -734,19 +763,27 @@ async function handleProductSubmit() {
   // 验证必填字段
   if (!productForm.productName || !productForm.skuName || !productForm.warehouseSku ||
       !productForm.productCost || !productForm.tax || !productForm.domesticShipping ||
-      !productForm.overseasShipping || !productForm.manager) {
+      !productForm.firstLegShipping || !productForm.overseasShipping || !productForm.manager) {
     message.error('请填写所有必填字段');
     return;
   }
 
   try {
     const productData = {
-      ...productForm,
+      productName: productForm.productName,
+      skuName: productForm.skuName,
+      warehouseSku: productForm.warehouseSku,
+      temuSku: productForm.temuSku,
+      sheinSku: productForm.sheinSku,
+      specs: productForm.specs,
       productCost: Number(productForm.productCost),
       tax: Number(productForm.tax),
       domesticShipping: Number(productForm.domesticShipping),
+      firstLegShipping: Number(productForm.firstLegShipping),
       overseasShipping: Number(productForm.overseasShipping),
+      manager: productForm.manager,
       stock: productForm.stock ? Number(productForm.stock) : 0,
+      imageUrl: productForm.imageUrl,
     };
 
     console.log('提交的产品数据:', productData);
@@ -757,15 +794,28 @@ async function handleProductSubmit() {
       const result = await updateProduct(productForm.id, productData);
       console.log('更新产品返回:', result);
       message.success('产品更新成功');
+
+      // 更新表格中的当前行数据（保留图片）
+      const currentData = gridApi.grid.getTableData().fullData;
+      const index = currentData.findIndex((item: any) => item.id === productForm.id);
+      if (index !== -1) {
+        currentData[index] = {
+          ...currentData[index],
+          ...productData,
+          id: productForm.id,
+        };
+        gridApi.grid.reloadData(currentData);
+      }
     } else {
       // 新增产品
       const result = await batchImportProducts([productData]);
       console.log('新增产品返回:', result);
       message.success('产品添加成功');
+      // 新增后需要刷新列表
+      refreshData();
     }
 
     productModalVisible.value = false;
-    refreshData();
   } catch (error) {
     console.error('产品提交失败:', error);
     message.error(isEdit.value ? '产品更新失败' : '产品添加失败');
@@ -778,20 +828,84 @@ function handleProductCancel() {
   resetProductForm();
 }
 
+// 图片压缩函数（优化压缩参数：200px宽度，0.7质量）
+function compressImage(file: File, maxWidth: number = 200, quality: number = 0.7): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (!e.target || !e.target.result) {
+        reject(new Error('文件读取结果为空'));
+        return;
+      }
+
+      const img = new window.Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        // 如果图片宽度超过最大宽度，按比例缩放
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('无法获取canvas上下文'));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // 转换为base64，使用指定的质量
+        const compressedBase64 = canvas.toDataURL('image/jpeg', quality);
+        resolve(compressedBase64);
+      };
+      img.onerror = () => reject(new Error('图片加载失败'));
+      img.src = e.target.result as string;
+    };
+    reader.onerror = () => reject(new Error('文件读取失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
 // 图片上传
 function handleImageUpload(file: File) {
+  console.log('开始上传图片:', file.name, file.size);
   const isImage = file.type.startsWith('image/');
   if (!isImage) {
     message.error('只能上传图片文件！');
     return false;
   }
 
-  // 转换为 base64
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    productForm.imageUrl = e.target?.result as string;
-  };
-  reader.readAsDataURL(file);
+  // 显示loading，返回的是一个关闭函数
+  const closeLoading = message.loading('正在压缩图片...', 0);
+
+  // 异步压缩图片
+  compressImage(file, 200, 0.7)
+    .then((compressedBase64) => {
+      console.log('图片压缩完成，长度:', compressedBase64.length);
+      productForm.imageUrl = compressedBase64;
+
+      // 计算压缩后的大小
+      const originalSize = (file.size / 1024).toFixed(2);
+      const compressedSize = ((compressedBase64.length * 0.75) / 1024).toFixed(2);
+      console.log(`图片压缩: ${originalSize}KB -> ${compressedSize}KB`);
+
+      // 关闭loading
+      closeLoading();
+      message.success(`图片上传成功 (${originalSize}KB → ${compressedSize}KB)`);
+    })
+    .catch((error) => {
+      // 关闭loading
+      closeLoading();
+      console.error('图片压缩失败:', error);
+      message.error('图片处理失败');
+    });
 
   return false;
 }

@@ -28,6 +28,7 @@ export function downloadProductTemplate() {
       '产品成本*': 50.00,
       '税金*': 5.00,
       '国内运费*': 10.00,
+      '头程运费*': 15.00,
       '海外运费*': 20.00,
       '管理人*': '张三',
       '库存量': '100',
@@ -37,7 +38,7 @@ export function downloadProductTemplate() {
   const worksheet = XLSX.utils.json_to_sheet(templateData);
 
   // 设置必填字段为红色
-  const requiredFields = ['产品名*', 'SKU名*', '仓库SKU*', '产品成本*', '税金*', '国内运费*', '海外运费*', '管理人*'];
+  const requiredFields = ['产品名*', 'SKU名*', '仓库SKU*', '产品成本*', '税金*', '国内运费*', '头程运费*', '海外运费*', '管理人*'];
   const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
 
   for (let C = range.s.c; C <= range.e.c; ++C) {
@@ -116,6 +117,7 @@ export function mapExcelToProduct(excelData: any[]): { validProducts: any[], err
     const productCost = getField(['产品成本*', '产品成本', '成本*', '成本']);
     const tax = getField(['税金*', '税金', '税*', '税']);
     const domesticShipping = getField(['国内运费*', '国内运费', '国内物流*', '国内物流']);
+    const firstLegShipping = getField(['头程运费*', '头程运费', '头程物流*', '头程物流']);
     const overseasShipping = getField(['海外运费*', '海外运费', '海外物流*', '海外物流']);
     const manager = getField(['管理人*', '管理人', '负责人*', '负责人']);
     const stock = getField(['库存量', '库存', 'stock', 'Stock']);
@@ -125,9 +127,10 @@ export function mapExcelToProduct(excelData: any[]): { validProducts: any[], err
         productCost === null || productCost === undefined || productCost === '' ||
         tax === null || tax === undefined || tax === '' ||
         domesticShipping === null || domesticShipping === undefined || domesticShipping === '' ||
+        firstLegShipping === null || firstLegShipping === undefined || firstLegShipping === '' ||
         overseasShipping === null || overseasShipping === undefined || overseasShipping === '' ||
         !manager) {
-      errors.push(`第 ${index + 2} 行：产品名、SKU名、仓库SKU、产品成本、税金、国内运费、海外运费、管理人为必填项`);
+      errors.push(`第 ${index + 2} 行：产品名、SKU名、仓库SKU、产品成本、税金、国内运费、头程运费、海外运费、管理人为必填项`);
       return;
     }
 
@@ -147,6 +150,7 @@ export function mapExcelToProduct(excelData: any[]): { validProducts: any[], err
       productCost: Number(productCost) || 0,
       tax: Number(tax) || 0,
       domesticShipping: Number(domesticShipping) || 0,
+      firstLegShipping: Number(firstLegShipping) || 0,
       overseasShipping: Number(overseasShipping) || 0,
       manager: manager,
       stock: Number(stock) || 0,

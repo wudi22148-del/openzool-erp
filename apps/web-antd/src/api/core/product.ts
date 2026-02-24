@@ -8,6 +8,13 @@ export async function getProductList(params?: any) {
 }
 
 /**
+ * 获取单个产品详情（包含图片）
+ */
+export async function getProductById(id: string) {
+  return requestClient.get(`/product/${id}`);
+}
+
+/**
  * 批量导入产品
  */
 export async function batchImportProducts(data: any[]) {

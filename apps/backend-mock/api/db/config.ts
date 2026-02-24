@@ -2,11 +2,11 @@ import { Pool } from 'pg';
 
 // 数据库连接配置
 const pool = new Pool({
-  host: '68.183.230.252',
+  host: 'localhost',
   port: 5432,
   database: 'openzool_erp',
-  user: 'erp_user',
-  password: 'erp_password_2026',
+  user: 'postgres',
+  password: '123456',
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,

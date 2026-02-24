@@ -8,6 +8,13 @@ export async function getSalesStatistics(params?: any) {
 }
 
 /**
+ * 获取销售统计总计数据
+ */
+export async function getSalesStatisticsTotals(params?: any) {
+  return requestClient.get('/sales/statistics-totals', { params });
+}
+
+/**
  * 上传日销数据
  */
 export async function uploadDailySales(data: any[]) {

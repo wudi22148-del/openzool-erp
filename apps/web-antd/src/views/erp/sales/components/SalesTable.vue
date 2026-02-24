@@ -58,7 +58,7 @@
 import { computed, ref, watch } from 'vue';
 import { Button, Modal, Input } from 'ant-design-vue';
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
-import { getSalesStatistics } from '#/api/core/sales';
+import { getSalesStatistics, getSalesStatisticsTotals } from '#/api/core/sales';
 import type { Dayjs } from 'dayjs';
 import LineChart from './LineChart.vue';
 
@@ -89,37 +89,8 @@ const remarkModalVisible = ref(false);
 const currentRemark = ref('');
 const currentRow = ref<any>(null);
 
-// 数据缓存 - 分别缓存销售数量和订单数量的完整数据
-const cachedQuantityFullData = ref<any[]>([]);
-const cachedOrdersFullData = ref<any[]>([]);
-const cacheKey = ref('');
-
-// 生成缓存键（不包含搜索条件）
-function getCacheKey() {
-  return `${props.dateRange[0].format('YYYY-MM-DD')}_${props.dateRange[1].format('YYYY-MM-DD')}`;
-}
-
-// 前端筛选数据
-function getFilteredData(fullData: any[]) {
-  let filtered = [...fullData];
-
-  // 关键词筛选
-  if (props.searchForm.keyword) {
-    const keyword = props.searchForm.keyword.toLowerCase();
-    filtered = filtered.filter(item =>
-      item.productName?.toLowerCase().includes(keyword) ||
-      item.skuName?.toLowerCase().includes(keyword) ||
-      item.warehouseSku?.toLowerCase().includes(keyword)
-    );
-  }
-
-  // 管理人筛选
-  if (props.searchForm.manager) {
-    filtered = filtered.filter(item => item.manager === props.searchForm.manager);
-  }
-
-  return filtered;
-}
+// 总计数据（用于页脚显示所有数据的合计）
+const totalStats = ref<any>({});
 
 // 查看/编辑备注
 function handleViewRemark(row: any) {
@@ -176,46 +147,46 @@ const fixedColumns = computed(() => [
     title: '负责人',
     field: 'manager',
     width: 120,
-    fixed: 'left',
+    fixed: 'left' as const,
     slots: { default: 'manager' },
   },
   {
     title: '产品信息',
     field: 'productName',
     minWidth: 200,
-    fixed: 'left',
+    fixed: 'left' as const,
     slots: { default: 'product-info' },
   },
   {
     title: '总销量',
     field: 'totalSales',
     width: 100,
-    align: 'center',
-    fixed: 'left',
+    align: 'center' as const,
+    fixed: 'left' as const,
     formatter: ({ cellValue }: any) => formatCellValue(cellValue),
   },
   {
     title: '平均日销',
     field: 'avgDailySales',
     width: 100,
-    align: 'center',
-    fixed: 'left',
+    align: 'center' as const,
+    fixed: 'left' as const,
     formatter: ({ cellValue }: any) => cellValue ? cellValue.toFixed(1) : '0',
   },
   {
     title: '备注',
     field: 'remark',
     width: 80,
-    align: 'center',
-    fixed: 'left',
+    align: 'center' as const,
+    fixed: 'left' as const,
     slots: { default: 'remark' },
   },
   {
     title: '销量趋势',
     field: 'trend',
     width: 140,
-    align: 'center',
-    fixed: 'left',
+    align: 'center' as const,
+    fixed: 'left' as const,
     slots: { default: 'trend' },
   },
 ]);
@@ -251,14 +222,14 @@ const [Grid, gridApi] = useVbenVxeGrid({
       enabled: true,
     },
     showFooter: true,
-    footerMethod: ({ columns, data }: any) => {
+    footerMethod: ({ columns }: any) => {
       const footerData = [
         columns.map((column: any, columnIndex: number) => {
           if (columnIndex === 0) {
             return '合计';
           }
           if (column.field === 'totalSales') {
-            const total = data.reduce((sum: number, row: any) => sum + (row.totalSales || 0), 0);
+            const total = totalStats.value.totalSales || 0;
             if (total === 0) return '';
             if (props.statisticsMode === 'orders') {
               return Number.isInteger(total) ? total.toString() : total.toFixed(1);
@@ -266,14 +237,14 @@ const [Grid, gridApi] = useVbenVxeGrid({
             return Math.round(total);
           }
           if (column.field === 'avgDailySales') {
-            const total = data.reduce((sum: number, row: any) => sum + (row.totalSales || 0), 0);
+            const total = totalStats.value.totalSales || 0;
             const days = dateColumns.value.length;
             if (days === 0 || total === 0) return '';
             const avg = total / days;
             return Number.isInteger(avg) ? avg.toString() : avg.toFixed(1);
           }
           if (column.field && column.field.startsWith('date_')) {
-            const total = data.reduce((sum: number, row: any) => sum + (row[column.field] || 0), 0);
+            const total = totalStats.value[column.field] || 0;
             if (total === 0) return '';
             if (props.statisticsMode === 'orders') {
               return Number.isInteger(total) ? total.toString() : total.toFixed(1);
@@ -294,47 +265,31 @@ const [Grid, gridApi] = useVbenVxeGrid({
     proxyConfig: {
       ajax: {
         query: async ({ page }: any) => {
-          const currentCacheKey = getCacheKey();
-          const currentMode = props.statisticsMode;
+          const params = {
+            page: page.currentPage,
+            pageSize: page.pageSize,
+            keyword: props.searchForm.keyword || '',
+            manager: props.searchForm.manager || '',
+            startDate: props.dateRange[0].format('YYYY-MM-DD'),
+            endDate: props.dateRange[1].format('YYYY-MM-DD'),
+            mode: props.statisticsMode,
+          };
 
-          // 检查对应模式的完整数据缓存
-          const cachedFullData = currentMode === 'quantity' ? cachedQuantityFullData.value : cachedOrdersFullData.value;
+          // 并行请求：分页数据和总计数据
+          const [result, totalsResult] = await Promise.all([
+            getSalesStatistics(params),
+            getSalesStatisticsTotals(params),
+          ]);
 
-          // 如果缓存键不同或没有缓存，从后端加载所有数据
-          if (cacheKey.value !== currentCacheKey || cachedFullData.length === 0) {
-            const params = {
-              page: 1,
-              pageSize: 10000, // 一次性加载所有数据
-              keyword: '',
-              manager: '',
-              startDate: props.dateRange[0].format('YYYY-MM-DD'),
-              endDate: props.dateRange[1].format('YYYY-MM-DD'),
-              mode: currentMode,
-            };
-
-            const result = await getSalesStatistics(params);
-
-            // 缓存完整数据
-            if (currentMode === 'quantity') {
-              cachedQuantityFullData.value = result.list || result.items || [];
-            } else {
-              cachedOrdersFullData.value = result.list || result.items || [];
-            }
-            cacheKey.value = currentCacheKey;
-          }
-
-          // 使用前端筛选
-          const fullData = currentMode === 'quantity' ? cachedQuantityFullData.value : cachedOrdersFullData.value;
-          const filteredData = getFilteredData(fullData);
-
-          // 前端分页
-          const startIndex = (page.currentPage - 1) * page.pageSize;
-          const endIndex = startIndex + page.pageSize;
-          const pageData = filteredData.slice(startIndex, endIndex);
+          // 设置总计数据
+          totalStats.value = {
+            totalSales: totalsResult.totalSales || 0,
+            ...totalsResult.dailyStats,
+          };
 
           return {
-            items: pageData,
-            total: filteredData.length,
+            items: result.list || result.items || [],
+            total: result.total || 0,
           };
         },
       },
@@ -345,7 +300,7 @@ const [Grid, gridApi] = useVbenVxeGrid({
   },
 });
 
-// 监听搜索条件变化，只刷新表格不重新加载数据
+// 监听搜索条件变化，重新加载数据
 watch(
   () => props.searchForm,
   () => {
@@ -354,12 +309,11 @@ watch(
   { deep: true }
 );
 
-// 监听统计模式变化，只刷新显示不重新加载数据
+// 监听统计模式变化，重新加载数据
 watch(
   () => props.statisticsMode,
   () => {
-    // 强制刷新表格以更新格式化
-    gridApi.grid.refreshColumn();
+    gridApi.reload();
   }
 );
 </script>

@@ -20,6 +20,15 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        name: 'ProfitCalculation',
+        path: '/profit/calculation',
+        component: () => import('#/views/erp/profit/calculation/index.vue'),
+        meta: {
+          icon: 'ant-design:calculator-outlined',
+          title: '产品利润计算',
+        },
+      },
+      {
         name: 'ProfitOrderProfit',
         path: '/profit/order-profit',
         component: () => import('#/views/erp/profit/order-profit/index.vue'),
