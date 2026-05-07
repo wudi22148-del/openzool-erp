@@ -35,6 +35,7 @@ const routes: RouteRecordRaw[] = [
         meta: {
           icon: 'ant-design:cloud-upload-outlined',
           title: '数据上传管理',
+          authority: ['admin', 'supervisor'],
         },
       },
       {
@@ -44,6 +45,15 @@ const routes: RouteRecordRaw[] = [
         meta: {
           icon: 'ant-design:file-text-outlined',
           title: '订单利润明细',
+        },
+      },
+      {
+        name: 'ProfitOrderFeedback',
+        path: '/profit/order-feedback',
+        component: () => import('#/views/erp/profit/order-feedback/index.vue'),
+        meta: {
+          icon: 'ant-design:message-outlined',
+          title: '订单异常反馈',
         },
       },
     ],

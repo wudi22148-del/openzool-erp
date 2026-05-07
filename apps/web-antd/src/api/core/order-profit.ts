@@ -33,28 +33,46 @@ export function calculateOrderProfit(data: { month: string; platform: string }) 
 
 // ============ 利润查询 ============
 
-export function getOrderProfitList(params: {
+export interface OrderProfitQueryParams {
   month: string;
   manager?: string;
   platform?: string;
   page?: number;
   pageSize?: number;
-}) {
+  noManager?: string;
+  noProductCost?: string;
+  noFreightCost?: string;
+  isDomestic?: string;
+  keyword?: string;
+  sortField?: string;
+  sortOrder?: string;
+}
+
+export function getOrderProfitList(params: OrderProfitQueryParams) {
   return requestClient.get('/profit/order-profit-list', { params });
 }
 
-export function getOrderProfitSummary(params: {
-  month: string;
-  manager?: string;
-  platform?: string;
-}) {
+export function getOrderProfitSummary(params: Omit<OrderProfitQueryParams, 'page' | 'pageSize' | 'sortField' | 'sortOrder'>) {
   return requestClient.get('/profit/order-profit-summary', { params });
+}
+
+export function exportOrderProfit(params: Omit<OrderProfitQueryParams, 'page' | 'pageSize'>) {
+  return requestClient.get('/profit/order-profit-export', { params });
 }
 
 export function getOrderProfitMonths(month?: string) {
   return requestClient.get('/profit/order-profit-months', {
     params: month ? { month } : {},
   });
+}
+
+export function updateOrderProfitCost(data: {
+  id: number;
+  productCostUnit?: number;
+  productCostTotal?: number;
+  freightCost?: number;
+}) {
+  return requestClient.post('/profit/order-profit-update-cost', data);
 }
 
 // ============ 上传管理 ============
@@ -70,4 +88,22 @@ export function deleteUpload(data: {
   fileType?: string;
 }) {
   return requestClient.post('/profit/upload-delete', data);
+}
+
+// ============ 订单异常反馈 ============
+
+export function submitOrderFeedback(data: { orderProfitId: number; feedbackText: string }) {
+  return requestClient.post('/profit/order-feedback-submit', data);
+}
+
+export function getOrderFeedbackList(params?: { status?: string; month?: string }) {
+  return requestClient.get('/profit/order-feedback-list', { params });
+}
+
+export function resolveOrderFeedback(data: { id: number; resolveNote?: string }) {
+  return requestClient.post('/profit/order-feedback-resolve', data);
+}
+
+export function confirmOrderFeedback(data: { id: number }) {
+  return requestClient.post('/profit/order-feedback-confirm', data);
 }

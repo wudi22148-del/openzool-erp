@@ -348,7 +348,10 @@ export async function getOrderProfitRecords(
   page?: number,
   pageSize?: number,
   platform?: string,
-  filters?: { noManager?: boolean; noProductCost?: boolean; noFreightCost?: boolean },
+  filters?: { noManager?: boolean; noProductCost?: boolean; noFreightCost?: boolean; isDomestic?: boolean | null },
+  keyword?: string,
+  sortField?: string,
+  sortOrder?: string,
 ): Promise<{ items: any[]; total: number }> {
   let whereClause = 'WHERE month = $1';
   const params: any[] = [month];
@@ -366,6 +369,13 @@ export async function getOrderProfitRecords(
     paramIdx++;
   }
 
+  if (keyword) {
+    const kw = `%${keyword}%`;
+    whereClause += ` AND (product_name ILIKE $${paramIdx} OR sku_id ILIKE $${paramIdx} OR order_no ILIKE $${paramIdx} OR waybill_numbers ILIKE $${paramIdx})`;
+    params.push(kw);
+    paramIdx++;
+  }
+
   if (filters?.noManager) {
     whereClause += ` AND (manager IS NULL OR manager = '')`;
   }
@@ -375,6 +385,11 @@ export async function getOrderProfitRecords(
   if (filters?.noFreightCost) {
     whereClause += ` AND (freight_cost = 0 OR freight_cost IS NULL)`;
   }
+  if (filters?.isDomestic === true) {
+    whereClause += ` AND is_domestic = true`;
+  } else if (filters?.isDomestic === false) {
+    whereClause += ` AND is_domestic = false`;
+  }
 
   // 总数
   const countResult = await pool.query(
@@ -383,8 +398,14 @@ export async function getOrderProfitRecords(
   );
   const total = countResult.rows[0].total;
 
+  // 排序
+  const validSortFields: Record<string, string> = { profit: 'profit', profitRate: 'profit_rate' };
+  const orderByField = validSortFields[sortField || ''] || 'id';
+  const orderByDir = sortOrder === 'descend' ? 'DESC' : sortOrder === 'ascend' ? 'ASC' : (orderByField === 'id' ? 'ASC' : 'DESC');
+  const orderBy = orderByField === 'id' ? 'ORDER BY id ASC' : `ORDER BY ${orderByField} ${orderByDir}, id ASC`;
+
   // 分页查询
-  let query = `SELECT * FROM order_profit_records ${whereClause} ORDER BY id`;
+  let query = `SELECT * FROM order_profit_records ${whereClause} ${orderBy}`;
   const queryParams = [...params];
 
   if (page && pageSize) {
@@ -423,7 +444,8 @@ export async function getOrderProfitSummary(
   month: string,
   manager?: string,
   platform?: string,
-  filters?: { noManager?: boolean; noProductCost?: boolean; noFreightCost?: boolean },
+  filters?: { noManager?: boolean; noProductCost?: boolean; noFreightCost?: boolean; isDomestic?: boolean | null },
+  keyword?: string,
 ): Promise<ProfitSummary[]> {
   let whereClause = 'WHERE month = $1';
   const params: any[] = [month];
@@ -441,6 +463,13 @@ export async function getOrderProfitSummary(
     paramIdx++;
   }
 
+  if (keyword) {
+    const kw = `%${keyword}%`;
+    whereClause += ` AND (product_name ILIKE $${paramIdx} OR sku_id ILIKE $${paramIdx} OR order_no ILIKE $${paramIdx} OR waybill_numbers ILIKE $${paramIdx})`;
+    params.push(kw);
+    paramIdx++;
+  }
+
   if (filters?.noManager) {
     whereClause += ` AND (manager IS NULL OR manager = '')`;
   }
@@ -449,6 +478,11 @@ export async function getOrderProfitSummary(
   }
   if (filters?.noFreightCost) {
     whereClause += ` AND (freight_cost = 0 OR freight_cost IS NULL)`;
+  }
+  if (filters?.isDomestic === true) {
+    whereClause += ` AND is_domestic = true`;
+  } else if (filters?.isDomestic === false) {
+    whereClause += ` AND is_domestic = false`;
   }
 
   const result = await pool.query(
