@@ -54,12 +54,19 @@ export async function insertFreightCosts(
 ): Promise<number> {
   if (!items.length) return 0;
 
+  // 先在内存中按运单号去重（同一文件内有重复运单号时保留最后一条）
+  const deduped = new Map<string, FreightCostItem>();
+  for (const item of items) {
+    deduped.set(item.waybillNumber, item);
+  }
+  const dedupedItems = [...deduped.values()];
+
   // 批量 upsert，每批 500 条；同月同运单号以新数据覆盖旧数据
   const batchSize = 500;
   let inserted = 0;
 
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
+  for (let i = 0; i < dedupedItems.length; i += batchSize) {
+    const batch = dedupedItems.slice(i, i + batchSize);
     const values: any[] = [];
     const placeholders: string[] = [];
 
@@ -83,7 +90,7 @@ export async function insertFreightCosts(
     inserted += batch.length;
   }
 
-  return inserted;
+  return dedupedItems.length;
 }
 
 export async function deleteFreightCostsByMonth(
