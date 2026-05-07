@@ -54,10 +54,7 @@ export async function insertFreightCosts(
 ): Promise<number> {
   if (!items.length) return 0;
 
-  // 先删除该月旧数据
-  await pool.query('DELETE FROM freight_costs WHERE month = $1', [month]);
-
-  // 批量插入，每批 500 条
+  // 批量 upsert，每批 500 条；同月同运单号以新数据覆盖旧数据
   const batchSize = 500;
   let inserted = 0;
 
@@ -75,7 +72,12 @@ export async function insertFreightCosts(
     });
 
     await pool.query(
-      `INSERT INTO freight_costs (month, waybill_number, freight_cost, is_domestic) VALUES ${placeholders.join(', ')}`,
+      `INSERT INTO freight_costs (month, waybill_number, freight_cost, is_domestic)
+       VALUES ${placeholders.join(', ')}
+       ON CONFLICT (month, waybill_number) DO UPDATE SET
+         freight_cost = EXCLUDED.freight_cost,
+         is_domestic = EXCLUDED.is_domestic,
+         created_at = NOW()`,
       values,
     );
     inserted += batch.length;
@@ -147,20 +149,47 @@ export async function saveSettlementUpload(
   month: string,
   platform: string,
   fileType: string,
-  fileData: any[],
+  newData: any[],
 ): Promise<number> {
-  // 先删除同月同平台同类型的旧数据
+  // 1. 加载已有数据
+  const existing = (await getSettlementUpload(month, platform, fileType)) ?? [];
+
+  // 2. 内存合并：按订单号去重，新数据覆盖旧数据
+  const orderKeyFn = (row: any): string => {
+    if (fileType === 'order_map') {
+      return String(row['订单编号'] || row['订单号'] || row['orderNo'] || '').trim();
+    }
+    // settlement
+    return String(
+      row['PO单号'] || row['poNo'] || row['订单号'] || row['orderNo'] || '',
+    ).trim();
+  };
+
+  const merged = new Map<string, any>();
+  let noKeyCounter = 0;
+  for (const row of existing) {
+    const key = orderKeyFn(row);
+    if (key) merged.set(key, row);
+    else merged.set(`__nokey_${noKeyCounter++}`, row);
+  }
+  for (const row of newData) {
+    const key = orderKeyFn(row);
+    if (key) merged.set(key, row); // 新数据覆盖旧数据
+    else merged.set(`__nokey_${noKeyCounter++}`, row); // 无 key 行直接追加
+  }
+  const finalData = [...merged.values()];
+
+  // 3. 保存（DELETE + INSERT）
   await pool.query(
     'DELETE FROM settlement_uploads WHERE month = $1 AND platform = $2 AND file_type = $3',
     [month, platform, fileType],
   );
-
   await pool.query(
     'INSERT INTO settlement_uploads (month, platform, file_type, file_data) VALUES ($1, $2, $3, $4)',
-    [month, platform, fileType, JSON.stringify(fileData)],
+    [month, platform, fileType, JSON.stringify(finalData)],
   );
 
-  return fileData.length;
+  return finalData.length;
 }
 
 export async function getSettlementUpload(

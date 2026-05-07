@@ -1,17 +1,17 @@
 <template>
   <div class="p-4">
-    <!-- 上传操作区 -->
+
+    <!-- Card 1：运费成本上传 -->
     <Card :bordered="false" class="mb-4">
       <template #title>
-        <span class="font-semibold">数据上传</span>
+        <span class="font-semibold">运费成本上传</span>
       </template>
 
-      <div class="flex flex-wrap items-end gap-4">
-        <!-- 月份 + 平台 -->
-        <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="flex items-center gap-1">
           <span class="text-sm text-gray-600">月份：</span>
           <DatePicker
-            v-model:value="uploadMonth"
+            v-model:value="freightMonth"
             picker="month"
             format="YYYY-MM"
             valueFormat="YYYY-MM"
@@ -20,43 +20,70 @@
             size="small"
           />
         </div>
-        <div class="flex items-center gap-2">
+
+        <Upload :before-upload="handleFreightCostUpload" :show-upload-list="false" accept=".xlsx,.xls">
+          <Button size="small" :loading="freightUploading" type="primary">
+            <template #icon><UploadOutlined /></template>
+            上传运费成本表
+          </Button>
+        </Upload>
+      </div>
+
+      <div class="mt-3 rounded bg-blue-50 px-4 py-2 text-xs text-blue-700">
+        <span class="font-medium">必须列名：</span>
+        运单号（或：快递单号 / 物流单号）、运费成本（或：运费 / 物流费用）、是否国内发货（填：是 / 否）&emsp;
+        <span class="font-medium">追加模式：</span>重复上传同月数据时，相同运单号的运费以新数据为准，其他条目保留。
+      </div>
+    </Card>
+
+    <!-- Card 2：平台数据上传 -->
+    <Card :bordered="false" class="mb-4">
+      <template #title>
+        <span class="font-semibold">平台数据上传</span>
+      </template>
+
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="flex items-center gap-1">
+          <span class="text-sm text-gray-600">月份：</span>
+          <DatePicker
+            v-model:value="platformMonth"
+            picker="month"
+            format="YYYY-MM"
+            valueFormat="YYYY-MM"
+            placeholder="选择月份"
+            style="width: 130px"
+            size="small"
+          />
+        </div>
+        <div class="flex items-center gap-1">
           <span class="text-sm text-gray-600">平台：</span>
-          <Select v-model:value="uploadPlatform" style="width: 100px" size="small">
+          <Select v-model:value="platformPlatform" style="width: 100px" size="small">
             <SelectOption value="TEMU">TEMU</SelectOption>
             <SelectOption value="SHEIN">SHEIN</SelectOption>
           </Select>
         </div>
 
-        <div class="mx-2 h-6 border-l border-gray-200" />
+        <div class="h-5 border-l border-gray-200" />
 
-        <!-- 三种文件上传 -->
-        <Upload :before-upload="handleFreightCostUpload" :show-upload-list="false" accept=".xlsx,.xls">
-          <Button size="small" :loading="freightUploading" type="default">
-            <template #icon><UploadOutlined /></template>
-            运费成本表
-          </Button>
-        </Upload>
         <Upload :before-upload="handleSettlementUpload" :show-upload-list="false" accept=".xlsx,.xls">
-          <Button size="small" :loading="settlementUploading" type="default">
+          <Button size="small" :loading="settlementUploading" type="primary">
             <template #icon><UploadOutlined /></template>
-            结算表
+            上传结算表
           </Button>
         </Upload>
+
         <Upload :before-upload="handleOrderMapUpload" :show-upload-list="false" accept=".xlsx,.xls">
-          <Button size="small" :loading="orderMapUploading" type="default">
+          <Button size="small" :loading="orderMapUploading" type="primary">
             <template #icon><UploadOutlined /></template>
-            订单编号表
+            上传订单编号表
           </Button>
         </Upload>
       </div>
 
-      <!-- 字段说明 -->
       <div class="mt-3 rounded bg-blue-50 px-4 py-2 text-xs text-blue-700">
-        <span class="font-medium">运费成本表列名：</span>
-        运单号（或：快递单号 / 物流单号）、运费成本（或：运费 / 物流费用）、是否国内发货（是/否）&emsp;
         <span class="font-medium">结算表 / 订单编号表：</span>
-        直接上传原始 Excel，系统自动识别列名
+        直接上传原始 Excel，系统自动识别列名。&emsp;
+        <span class="font-medium">追加模式：</span>重复上传时按订单号去重，相同订单号以新数据为准，其余条目保留。
       </div>
     </Card>
 
@@ -106,7 +133,7 @@
                 accept=".xlsx,.xls"
               >
                 <Button size="small" type="link" :loading="reUploadingKey === record.key">
-                  重新上传
+                  追加上传
                 </Button>
               </Upload>
               <Popconfirm
@@ -132,6 +159,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import dayjs from 'dayjs';
 import {
   Button, Card, DatePicker, Popconfirm, Select, Table, Tag, Upload, message,
 } from 'ant-design-vue';
@@ -146,13 +174,10 @@ import {
 
 const SelectOption = Select.Option;
 
-// ============ 上传状态 ============
+// ============ 运费上传 ============
 
-const uploadMonth = ref('');
-const uploadPlatform = ref<'TEMU' | 'SHEIN'>('TEMU');
+const freightMonth = ref(dayjs().format('YYYY-MM'));
 const freightUploading = ref(false);
-const settlementUploading = ref(false);
-const orderMapUploading = ref(false);
 
 function parseFreightCostData(rawData: any[]) {
   const result: Array<{ waybillNumber: string; freightCost: number; isDomestic: boolean }> = [];
@@ -174,28 +199,36 @@ function parseFreightCostData(rawData: any[]) {
 }
 
 async function handleFreightCostUpload(file: File) {
-  if (!uploadMonth.value) { message.warning('请先选择月份'); return false; }
+  if (!freightMonth.value) { message.warning('请先选择月份'); return false; }
   try {
     freightUploading.value = true;
     const rawData = await parseExcel(file);
     const items = parseFreightCostData(rawData);
     if (!items.length) { message.error('未解析到有效运费数据，请检查列名'); return false; }
-    await uploadFreightCost({ month: uploadMonth.value, items });
-    message.success(`运费成本上传成功：${items.length} 条，已覆盖旧数据`);
+    await uploadFreightCost({ month: freightMonth.value, items });
+    message.success(`运费成本追加成功：新增/更新 ${items.length} 条`);
     await loadUploads();
   } catch (e: any) { message.error(`上传失败: ${e.message}`); }
   finally { freightUploading.value = false; }
   return false;
 }
 
+// ============ 平台数据上传 ============
+
+const platformMonth = ref(dayjs().format('YYYY-MM'));
+const platformPlatform = ref<'TEMU' | 'SHEIN'>('TEMU');
+const settlementUploading = ref(false);
+const orderMapUploading = ref(false);
+
 async function handleSettlementUpload(file: File) {
-  if (!uploadMonth.value) { message.warning('请先选择月份'); return false; }
+  if (!platformMonth.value) { message.warning('请先选择月份'); return false; }
   try {
     settlementUploading.value = true;
     const rawData = await parseExcel(file);
     if (!rawData.length) { message.error('未解析到有效数据'); return false; }
-    await uploadSettlement({ month: uploadMonth.value, platform: uploadPlatform.value, fileType: 'settlement', data: rawData });
-    message.success(`结算表上传成功：${rawData.length} 条，已覆盖旧数据`);
+    const res = await uploadSettlement({ month: platformMonth.value, platform: platformPlatform.value, fileType: 'settlement', data: rawData });
+    const count = (res as any)?.count ?? rawData.length;
+    message.success(`结算表追加成功：当前共 ${count} 条`);
     await loadUploads();
   } catch (e: any) { message.error(`上传失败: ${e.message}`); }
   finally { settlementUploading.value = false; }
@@ -203,13 +236,14 @@ async function handleSettlementUpload(file: File) {
 }
 
 async function handleOrderMapUpload(file: File) {
-  if (!uploadMonth.value) { message.warning('请先选择月份'); return false; }
+  if (!platformMonth.value) { message.warning('请先选择月份'); return false; }
   try {
     orderMapUploading.value = true;
     const rawData = await parseExcel(file);
     if (!rawData.length) { message.error('未解析到有效数据'); return false; }
-    await uploadSettlement({ month: uploadMonth.value, platform: uploadPlatform.value, fileType: 'order_map', data: rawData });
-    message.success(`订单编号表上传成功：${rawData.length} 条，已覆盖旧数据`);
+    const res = await uploadSettlement({ month: platformMonth.value, platform: platformPlatform.value, fileType: 'order_map', data: rawData });
+    const count = (res as any)?.count ?? rawData.length;
+    message.success(`订单编号表追加成功：当前共 ${count} 条`);
     await loadUploads();
   } catch (e: any) { message.error(`上传失败: ${e.message}`); }
   finally { orderMapUploading.value = false; }
@@ -303,7 +337,7 @@ async function handleDelete(record: UploadRecord) {
   } catch (e: any) { message.error(`删除失败: ${e.message}`); }
 }
 
-// ============ 重新上传（行内） ============
+// ============ 追加上传（行内） ============
 
 async function handleReUpload(file: File, record: UploadRecord) {
   try {
@@ -314,16 +348,17 @@ async function handleReUpload(file: File, record: UploadRecord) {
       const items = parseFreightCostData(rawData);
       if (!items.length) { message.error('未解析到有效运费数据'); return false; }
       await uploadFreightCost({ month: record.month, items });
-      message.success(`运费成本重新上传成功：${items.length} 条`);
+      message.success(`运费成本追加成功：新增/更新 ${items.length} 条`);
     } else {
       if (!rawData.length) { message.error('未解析到有效数据'); return false; }
-      await uploadSettlement({
+      const res = await uploadSettlement({
         month: record.month,
         platform: record.platform!,
         fileType: record.fileType!,
         data: rawData,
       });
-      message.success(`${getTypeLabel(record.type, record.fileType)} 重新上传成功：${rawData.length} 条`);
+      const count = (res as any)?.count ?? rawData.length;
+      message.success(`${getTypeLabel(record.type, record.fileType)} 追加成功：当前共 ${count} 条`);
     }
     await loadUploads();
   } catch (e: any) { message.error(`上传失败: ${e.message}`); }
