@@ -110,12 +110,13 @@ export default defineEventHandler(async (event) => {
             p.product_name,
             p.sku_name,
             p.warehouse_sku,
+            p.sales_sort_order,
             SUM(sr.order_qty) as total_sales
           FROM products p
           INNER JOIN sales_with_ratio sr ON p.warehouse_sku = sr.warehouse_sku
           WHERE 1=1 ${productFilter}
-          GROUP BY p.id, p.manager, p.product_name, p.sku_name, p.warehouse_sku
-          ORDER BY total_sales DESC
+          GROUP BY p.id, p.manager, p.product_name, p.sku_name, p.warehouse_sku, p.sales_sort_order
+          ORDER BY p.sales_sort_order NULLS LAST, total_sales DESC
           LIMIT $${paramIndex + 2} OFFSET $${paramIndex + 3}
         )
         SELECT
@@ -124,7 +125,7 @@ export default defineEventHandler(async (event) => {
           sr.order_qty as daily_sales
         FROM product_stats ps
         LEFT JOIN sales_with_ratio sr ON ps.warehouse_sku = sr.warehouse_sku
-        ORDER BY ps.total_sales DESC, sr.date DESC
+        ORDER BY ps.sales_sort_order NULLS LAST, ps.total_sales DESC, sr.date DESC
       `;
     } else {
       // 销售数量模式：原有逻辑
@@ -136,13 +137,14 @@ export default defineEventHandler(async (event) => {
             p.product_name,
             p.sku_name,
             p.warehouse_sku,
+            p.sales_sort_order,
             SUM(ds.sales_quantity) as total_sales
           FROM products p
           INNER JOIN daily_sales ds ON p.warehouse_sku = ds.warehouse_sku
           WHERE ds.date >= $${paramIndex} AND ds.date <= $${paramIndex + 1}
           ${productFilter}
-          GROUP BY p.id, p.manager, p.product_name, p.sku_name, p.warehouse_sku
-          ORDER BY total_sales DESC
+          GROUP BY p.id, p.manager, p.product_name, p.sku_name, p.warehouse_sku, p.sales_sort_order
+          ORDER BY p.sales_sort_order NULLS LAST, total_sales DESC
           LIMIT $${paramIndex + 2} OFFSET $${paramIndex + 3}
         )
         SELECT
@@ -152,8 +154,8 @@ export default defineEventHandler(async (event) => {
         FROM product_stats ps
         LEFT JOIN daily_sales ds ON ps.warehouse_sku = ds.warehouse_sku
           AND ds.date >= $${paramIndex} AND ds.date <= $${paramIndex + 1}
-        GROUP BY ps.id, ps.manager, ps.product_name, ps.sku_name, ps.warehouse_sku, ps.total_sales, ds.date
-        ORDER BY ps.total_sales DESC, ds.date DESC
+        GROUP BY ps.id, ps.manager, ps.product_name, ps.sku_name, ps.warehouse_sku, ps.sales_sort_order, ps.total_sales, ds.date
+        ORDER BY ps.sales_sort_order NULLS LAST, ps.total_sales DESC, ds.date DESC
       `;
     }
 

@@ -29,30 +29,21 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        name: 'ProfitDataUpload',
+        path: '/profit/data-upload',
+        component: () => import('#/views/erp/profit/data-upload/index.vue'),
+        meta: {
+          icon: 'ant-design:cloud-upload-outlined',
+          title: '数据上传管理',
+        },
+      },
+      {
         name: 'ProfitOrderProfit',
         path: '/profit/order-profit',
         component: () => import('#/views/erp/profit/order-profit/index.vue'),
         meta: {
           icon: 'ant-design:file-text-outlined',
           title: '订单利润明细',
-        },
-      },
-      {
-        name: 'ProfitCostSettings',
-        path: '/profit/cost-settings',
-        component: () => import('#/views/erp/profit/cost-settings/index.vue'),
-        meta: {
-          icon: 'ant-design:setting-outlined',
-          title: '成本设置',
-        },
-      },
-      {
-        name: 'ProfitAllocations',
-        path: '/profit/allocations',
-        component: () => import('#/views/erp/profit/allocations/index.vue'),
-        meta: {
-          icon: 'ant-design:calculator-outlined',
-          title: '费用分摊规则',
         },
       },
     ],

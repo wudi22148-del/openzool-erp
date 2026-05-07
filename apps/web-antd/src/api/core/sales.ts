@@ -34,3 +34,10 @@ export async function deleteDailySales(date: string, warehouseSku?: string) {
 export async function clearDailySales(params?: { startDate?: string; endDate?: string }) {
   return requestClient.post('/sales/daily-clear', params);
 }
+
+/**
+ * 保存销售统计排序顺序
+ */
+export async function saveSalesSortOrder(sortOrders: Array<{ id: number; sortOrder: number }>) {
+  return requestClient.post('/sales/save-sort-order', { sortOrders });
+}

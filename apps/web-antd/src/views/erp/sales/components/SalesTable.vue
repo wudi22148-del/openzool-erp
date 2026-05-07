@@ -9,6 +9,15 @@
       <span v-else class="text-gray-400 text-[13px]">-</span>
     </template>
 
+    <!-- 状态列 -->
+    <template #inventory-status="{ row }">
+      <span v-if="row.inventoryStatus === '爆款'" class="inline-flex items-center px-2 py-0.5 rounded text-[12px] font-medium" style="color: #cf1322; background: #fff1f0; border: 1px solid #ffa39e;">爆款</span>
+      <span v-else-if="row.inventoryStatus === '新品'" class="inline-flex items-center px-2 py-0.5 rounded text-[12px] font-medium" style="color: #389e0d; background: #f6ffed; border: 1px solid #b7eb8f;">新品</span>
+      <span v-else-if="row.inventoryStatus === '普通'" class="inline-flex items-center px-2 py-0.5 rounded text-[12px] font-medium" style="color: #d46b08; background: #fff7e6; border: 1px solid #ffd591;">普通</span>
+      <span v-else-if="row.inventoryStatus === '滞销'" class="inline-flex items-center px-2 py-0.5 rounded text-[12px] font-medium" style="color: #595959; background: #fafafa; border: 1px solid #d9d9d9;">滞销</span>
+      <span v-else class="text-gray-400 text-[12px]">-</span>
+    </template>
+
     <!-- 产品信息列 -->
     <template #product-info="{ row }">
       <div class="py-1">
@@ -30,6 +39,20 @@
         <span v-if="row.remark" class="text-blue-600">查看</span>
         <span v-else class="text-gray-400">添加</span>
       </Button>
+    </template>
+
+    <!-- 日销编辑列 -->
+    <template #daily-sales-edit="{ row }">
+      <InputNumber
+        :value="row.dailySalesManual"
+        :min="0"
+        :precision="1"
+        :controls="false"
+        size="small"
+        style="width: 80px"
+        @pressEnter="(e: any) => handleDailySalesChange(row, e.target.value)"
+        @blur="(e: any) => handleDailySalesChange(row, e.target.value)"
+      />
     </template>
 
     <!-- 动态日期列 -->
@@ -56,9 +79,10 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { Button, Modal, Input } from 'ant-design-vue';
+import { Button, Modal, Input, InputNumber, message } from 'ant-design-vue';
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
-import { getSalesStatistics, getSalesStatisticsTotals } from '#/api/core/sales';
+import { getSalesStatistics, getSalesStatisticsTotals, saveSalesSortOrder } from '#/api/core/sales';
+import { updateDailySales } from '#/api/core/product';
 import type { Dayjs } from 'dayjs';
 import LineChart from './LineChart.vue';
 
@@ -67,6 +91,7 @@ const props = defineProps<{
   searchForm: {
     keyword: string;
     manager: string | undefined;
+    status: string | undefined;
   };
   statisticsMode: 'quantity' | 'orders';
 }>();
@@ -115,6 +140,19 @@ function handleCancelRemark() {
   currentRow.value = null;
 }
 
+// 日销编辑（回车/失焦保存）
+async function handleDailySalesChange(row: any, val: any) {
+  const numVal = Number(val) || 0;
+  if (numVal === row.dailySalesManual) return;
+  try {
+    await updateDailySales(row.warehouseSku, numVal);
+    row.dailySalesManual = numVal;
+    message.success('日销更新成功');
+  } catch (error: any) {
+    message.error(error.message || '日销更新失败');
+  }
+}
+
 // 生成日期列
 const dateColumns = computed(() => {
   if (!props.dateRange || props.dateRange.length !== 2) {
@@ -144,11 +182,25 @@ const dateColumns = computed(() => {
 // 固定列配置
 const fixedColumns = computed(() => [
   {
+    type: 'seq' as const,
+    title: '排序',
+    width: 60,
+    fixed: 'left' as const,
+  },
+  {
     title: '负责人',
     field: 'manager',
     width: 120,
     fixed: 'left' as const,
     slots: { default: 'manager' },
+  },
+  {
+    title: '状态',
+    field: 'inventoryStatus',
+    width: 80,
+    align: 'center' as const,
+    fixed: 'left' as const,
+    slots: { default: 'inventory-status' },
   },
   {
     title: '产品信息',
@@ -172,6 +224,14 @@ const fixedColumns = computed(() => [
     align: 'center' as const,
     fixed: 'left' as const,
     formatter: ({ cellValue }: any) => cellValue ? cellValue.toFixed(1) : '0',
+  },
+  {
+    title: '日销',
+    field: 'dailySalesManual',
+    width: 100,
+    align: 'center' as const,
+    fixed: 'left' as const,
+    slots: { default: 'daily-sales-edit' },
   },
   {
     title: '备注',
@@ -211,6 +271,9 @@ const [Grid, gridApi] = useVbenVxeGrid({
       keyField: 'id',
       height: 60,
       isHover: true,
+      useKey: true,
+      isCurrent: true,
+      drag: true,
     },
     columnConfig: {
       resizable: true,
@@ -270,6 +333,7 @@ const [Grid, gridApi] = useVbenVxeGrid({
             pageSize: page.pageSize,
             keyword: props.searchForm.keyword || '',
             manager: props.searchForm.manager || '',
+            status: props.searchForm.status || '',
             startDate: props.dateRange[0].format('YYYY-MM-DD'),
             endDate: props.dateRange[1].format('YYYY-MM-DD'),
             mode: props.statisticsMode,
@@ -316,10 +380,56 @@ watch(
     gridApi.reload();
   }
 );
+
+// 行拖拽排序处理
+async function handleRowDrop({ newIndex, oldIndex }: any) {
+  if (newIndex === oldIndex) return;
+
+  const tableData = gridApi.getData();
+  if (!tableData || tableData.length === 0) return;
+
+  // 构建排序数据
+  const sortOrders = tableData.map((row: any, index: number) => ({
+    id: row.id,
+    sortOrder: index + 1,
+  }));
+
+  try {
+    await saveSalesSortOrder(sortOrders);
+    message.success('排序已保存');
+  } catch (error: any) {
+    message.error(error.message || '保存排序失败');
+    // 失败时重新加载数据恢复原顺序
+    gridApi.reload();
+  }
+}
+
+// 设置行拖拽事件
+gridApi.connect(() => {
+  const $grid = gridApi.grid;
+  if ($grid) {
+    $grid.on('row-drop-end', handleRowDrop);
+  }
+});
 </script>
 
 <style scoped>
 :deep(.vxe-footer--column) {
   font-weight: bold;
+}
+
+/* 拖拽行样式 */
+:deep(.vxe-body--row.sortable-ghost) {
+  opacity: 0.5;
+  background-color: #f0f7ff !important;
+}
+
+:deep(.vxe-body--row.sortable-chosen) {
+  background-color: #e6f4ff !important;
+}
+
+/* 拖拽时的光标样式 */
+:deep(.vxe-body--row[draggable="true"]) {
+  cursor: move;
 }
 </style>
